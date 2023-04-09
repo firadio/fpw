@@ -27,8 +27,16 @@ class Worker {
     }
 
     private function ThinkPHPInit() {
-        require_once dirname(dirname(__DIR__)) . $this->sAutoload;
+        $sAutoload = $this->sAutoload;
+        if (!is_file($sAutoload)) {
+            $this->bIsThinkPHP = false;
+            return;
+        }
+        require_once $sAutoload;
         require_once __DIR__ . '/Cookie.php';
+        if (!$this->sWwwrootDir) {
+            $this->sWwwrootDir = 'tp/public';
+        }
         // 加载ThinkPHP框架
         $this->app = new think\App();
         $this->app->initialize();
@@ -107,6 +115,9 @@ class Worker {
 
     private function getFilePath($sWwwrootDir, $aDefaDocument, $sReqPath) {
         // 获取文件路径
+        if (!$sWwwrootDir) {
+            $sWwwrootDir = 'public';
+        }
         $filePath = $sWwwrootDir . $sReqPath;
         if (is_file($filePath)) {
             return $filePath;
@@ -220,7 +231,8 @@ class Worker {
         $opts['http']['content'] = $sResBody;
         $cxContext = stream_context_create($opts);
         $sBody = @file_get_contents($this->sServerUrl, false, $cxContext);
-        return $this->getResponse($sBody, $http_response_header);
+        $aHeader = isset($http_response_header) ? $http_response_header : array();
+        return $this->getResponse($sBody, $aHeader);
     }
 
     private function getResponse($sBody, $aHeader = array()) {
