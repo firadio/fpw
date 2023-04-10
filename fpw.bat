@@ -1,5 +1,6 @@
 @ECHO OFF
 setlocal ENABLEDELAYEDEXPANSION
+cd /d %~dp0
 for %%i in (%0) do (set "name=%%~ni")
 title %0
 set FPW_URL=http://xxx.28820.com/
