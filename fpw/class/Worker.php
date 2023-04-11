@@ -48,22 +48,22 @@ class Worker {
         ]);
     }
 
-    public function FrameworkWorker($sFpwUIP, $sFpwMethod, $sFpwUrl, $sReqPath, $mReqHeader, $sReqBody) {
+    public function FrameworkWorker($oReq) {
         if ($this->bIsThinkPHP) {
-            return $this->ThinkPHPWorker($sFpwUIP, $sFpwMethod, $sFpwUrl, $sReqPath, $mReqHeader, $sReqBody);
+            return $this->ThinkPHPWorker($oReq);
         }
     }
 
-    public function ThinkPHPWorker($sFpwUIP, $sFpwMethod, $sFpwUrl, $sReqPath, $mReqHeader, $sReqBody) {
+    public function ThinkPHPWorker($oReq) {
 
-        $_SERVER['REQUEST_URI'] = $sFpwUrl;
+        $_SERVER['REQUEST_URI'] = $oReq->sUrl;
 
         // 通过ThinkPHP框架处理用户请求
-        $pathinfo = ltrim($sReqPath, '/');
+        $pathinfo = ltrim($oReq->getPath(), '/');
 
         $request = $this->app->request;
         $request->setPathinfo($pathinfo);
-        $request->withInput($sReqBody);
+        $request->withInput($oReq->sBody);
 
         while (ob_get_level() > 1) {
             ob_end_clean();
@@ -139,16 +139,17 @@ class Worker {
         }
     }
 
-    public function Proxy($sFpwUIP, $sMethod, $sUrlPath, $mReqHeader, $sReqBody) {
+    public function Proxy($oReq) {
         if (!$this->sProxyUrl) {
             return;
         }
-        $sUrlFull = $this->sProxyUrl . $sUrlPath;
-        return $this->httpRequestByCurl($sMethod, $sUrlFull, $mReqHeader, $sReqBody);
+        $sUrlFull = $this->sProxyUrl . $oReq->sUrl;
+        return $this->httpRequestByCurl($oReq->sMethod, $sUrlFull, $oReq->mHeader, $oReq->sBody);
     }
 
-    public function FileServer($sReqPath) {
+    public function FileServer($oReq) {
         // 实现静态文件服务器
+        $sReqPath = $oReq->getPath();
         $filepath = $this->getFilePath($this->sWwwrootDir, $this->aDefaDocument, $sReqPath);
         if ($filepath) {
             $ext = pathinfo($filepath, PATHINFO_EXTENSION);
@@ -162,29 +163,6 @@ class Worker {
     }
 
     public function run($fCallback) {
-        $this->run2(function ($sFpwUIP, $sFpwMethod, $sFpwUrl, $mReqHeader, $sReqBody, $sReqPath, $mReqQuery, $mReqForm) use ($fCallback) {
-            return $fCallback($sFpwUIP, $sFpwMethod, $sFpwUrl, $mReqHeader, $sReqBody, $sReqPath, $mReqQuery, $mReqForm);
-        });
-    }
-
-    private function run2($fCallback) {
-        $this->run1(function ($sFpwUIP, $sFpwMethod, $sFpwUrl, $mReqHeader, $sReqBody) use ($fCallback) {
-            $mUrl = parse_url($sFpwUrl);
-            $sReqPath = $mUrl['path'];
-            $sReqPath = str_replace('..', '', $sReqPath);
-            $mReqQuery = array();
-            if (isset($mUrl['query'])) {
-                parse_str($mUrl['query'], $mReqQuery);
-            }
-            $mReqForm = array();
-            if ($sReqBody) {
-                parse_str($sReqBody, $mReqForm);
-            }
-            return $fCallback($sFpwUIP, $sFpwMethod, $sFpwUrl, $mReqHeader, $sReqBody, $sReqPath, $mReqQuery, $mReqForm);
-        });
-    }
-
-    private function run1($fCallback) {
         $mResHeader = array();
         $this->setHeaderByFpwInfo($mResHeader);
         $sResBody = '';
@@ -192,11 +170,13 @@ class Worker {
             $req = $this->getBrowserRequest($mResHeader, $sResBody);
             if (!$req) continue;
             if (!isset($req[0]['fpw-rid'])) continue;
-            $sFpwUIP = $req[0]['fpw-uip'];
-            $sFpwMethod = $req[0]['fpw-method'];
-            $sFpwUrl = $req[0]['fpw-url'];
-            $mReqHeader = isset($req[0]['fpw-header']) ? json_decode($req[0]['fpw-header'], true) : array();
-            list($iStatusCode, $mFpwHeader, $sResBody) = $fCallback($sFpwUIP, $sFpwMethod, $sFpwUrl, $mReqHeader, $req[1]);
+            $oReq = new Request();
+            $oReq->sUserIP = $req[0]['fpw-uip'];
+            $oReq->sMethod = $req[0]['fpw-method'];
+            $oReq->sUrl = $req[0]['fpw-url'];
+            $oReq->mHeader = isset($req[0]['fpw-header']) ? json_decode($req[0]['fpw-header'], true) : array();
+            $oReq->sBody = $req[1];
+            list($iStatusCode, $mFpwHeader, $sResBody) = $fCallback($oReq);
             $this->setHeaderByFpwInfo($mResHeader);
             $mResHeader['fpw-rid'] = $req[0]['fpw-rid'];
             $mResHeader['fpw-status'] = $iStatusCode;
