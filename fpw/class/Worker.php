@@ -14,6 +14,7 @@ class Worker {
     public $aDefaDocument = array('index.htm', 'index.html');
     public $mMimeType = array();
     public $ch;
+    public $sProxyUrl = '';
 
     public function __construct() {
         $this->initMimeTypeMap(dirname(dirname(__DIR__)) . '/mime.types');
@@ -47,10 +48,13 @@ class Worker {
         ]);
     }
 
-    public function ThinkPHPWorker($sFpwUIP, $sFpwMethod, $sFpwUrl, $sReqPath, $mReqHeader, $sReqBody, &$iStatusCode, &$mFpwHeader, &$sResBody) {
-        if (!$this->bIsThinkPHP) {
-            return;
+    public function FrameworkWorker($sFpwUIP, $sFpwMethod, $sFpwUrl, $sReqPath, $mReqHeader, $sReqBody) {
+        if ($this->bIsThinkPHP) {
+            return $this->ThinkPHPWorker($sFpwUIP, $sFpwMethod, $sFpwUrl, $sReqPath, $mReqHeader, $sReqBody);
         }
+    }
+
+    public function ThinkPHPWorker($sFpwUIP, $sFpwMethod, $sFpwUrl, $sReqPath, $mReqHeader, $sReqBody) {
 
         $_SERVER['REQUEST_URI'] = $sFpwUrl;
 
@@ -78,9 +82,8 @@ class Worker {
 
         $iStatusCode = $response->getCode();
         $mFpwHeader = $response->getHeader();
-        $sResBody = $content;
 
-        return true;
+        return array($iStatusCode, $mFpwHeader, $content);
     }
 
     /**
@@ -136,15 +139,24 @@ class Worker {
         }
     }
 
-    public function FileServer($sReqPath, &$mFpwHeader, &$sResBody) {
+    public function Proxy($sFpwUIP, $sMethod, $sUrlPath, $mReqHeader, $sReqBody) {
+        if (!$this->sProxyUrl) {
+            return;
+        }
+        $sUrlFull = $this->sProxyUrl . $sUrlPath;
+        return $this->httpRequestByCurl($sMethod, $sUrlFull, $mReqHeader, $sReqBody);
+    }
+
+    public function FileServer($sReqPath) {
         // 实现静态文件服务器
         $filepath = $this->getFilePath($this->sWwwrootDir, $this->aDefaDocument, $sReqPath);
         if ($filepath) {
             $ext = pathinfo($filepath, PATHINFO_EXTENSION);
             if (isset($this->mMimeType[$ext])) {
+                $mFpwHeader = array();
                 $mFpwHeader['content-type'] = $this->mMimeType[$ext];
                 $sResBody = file_get_contents($filepath);
-                return true;
+                return array(200, $mFpwHeader, $sResBody);
             }
         }
     }
@@ -177,7 +189,7 @@ class Worker {
         $this->setHeaderByFpwInfo($mResHeader);
         $sResBody = '';
         while (true) {
-            $req = $this->getRequest($mResHeader, $sResBody);
+            $req = $this->getBrowserRequest($mResHeader, $sResBody);
             if (!$req) continue;
             if (!isset($req[0]['fpw-rid'])) continue;
             $sFpwUIP = $req[0]['fpw-uip'];
@@ -224,27 +236,33 @@ class Worker {
         return $aHeader;
     }
 
-    private function getRequest($mResHeader, $sResBody) {
-        return $this->getRequest_curl($mResHeader, $sResBody);
+    private function getBrowserRequest($mReqHeader, $sReqBody) {
+        $aRes = $this->httpRequestByCurl('POST', $this->sServerUrl, $mReqHeader, $sReqBody);
+        if ($aRes) {
+            list($iStatusCode, $mResHeader, $sResBody) = $aRes;
+            return array($mResHeader, $sResBody);
+        }
     }
 
-    private function getRequest_file($mResHeader, $sResBody) {
+    private function httpRequestByGetFile($sMethod, $sUrl, $mReqHeader, $sReqBody) {
         // 采用 file_get_contents 写的 http请求
-        //$mResHeader['connection'] = 'Keep-Alive';
-        $mResHeader['user-agent'] = 'php-worker-v1';
-        $mResHeader['content-type'] = 'application/octet-stream';
-        $mResHeader['content-length'] = strlen($sResBody);
+        //$mReqHeader['connection'] = 'Keep-Alive';
+        $mReqHeader['user-agent'] = 'php-worker-v1';
+        $mReqHeader['content-type'] = 'application/octet-stream';
+        $mReqHeader['content-length'] = strlen($sReqBody);
         $opts = array();
         $opts['http'] = array();
         $opts['http']['timeout'] = $this->iTimeout;
-        $opts['http']['method'] = 'POST';
+        $opts['http']['method'] = $sMethod;
         //$opts['http']['protocol_version'] = '1.1';
-        $opts['http']['header'] = implode("\r\n", $this->header_mtoa($mResHeader));
-        $opts['http']['content'] = $sResBody;
+        $opts['http']['header'] = implode("\r\n", $this->header_mtoa($mReqHeader));
+        $opts['http']['content'] = $sReqBody;
         $cxContext = stream_context_create($opts);
-        $sBody = @file_get_contents($this->sServerUrl, false, $cxContext);
+        $sBody = @file_get_contents($sUrl, false, $cxContext);
         $aHeader = isset($http_response_header) ? $http_response_header : array();
-        return $this->getResponse($sBody, $aHeader);
+        $iStatusCode = 200;
+        list($mResHeader, $sResBody) = $this->getResponse($sBody, $aHeader);
+        return array($iStatusCode, $mResHeader, $sResBody);
     }
 
     private function getResponse($sBody, $aHeader = array()) {
@@ -272,21 +290,25 @@ class Worker {
         exit;
     }
 
-    private function getRequest_curl($mResHeader, $sResBody) {
-        $mResHeader['Content-Type'] = 'application/octet-stream';
+    private function httpRequestByCurl($sMethod, $sUrl, $mReqHeader, $sReqBody) {
         // 采用 curl 写的 http请求
         curl_setopt($this->ch, CURLOPT_TCP_KEEPALIVE, true);
         curl_setopt($this->ch, CURLOPT_TCP_KEEPIDLE, 120);
         curl_setopt($this->ch, CURLOPT_TCP_KEEPINTVL, 60);
         curl_setopt($this->ch, CURLOPT_SSL_VERIFYPEER, FALSE);
         curl_setopt($this->ch, CURLOPT_SSL_VERIFYHOST, FALSE);
-        curl_setopt($this->ch, CURLOPT_URL, $this->sServerUrl);
+        curl_setopt($this->ch, CURLOPT_URL, $sUrl);
         curl_setopt($this->ch, CURLOPT_USERAGENT, 'php-worker-v1');
         curl_setopt($this->ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($this->ch, CURLOPT_HEADER, true);
-        curl_setopt($this->ch, CURLOPT_HTTPHEADER, $this->header_mtoa($mResHeader));
-        curl_setopt($this->ch, CURLOPT_POST, true);
-        curl_setopt($this->ch, CURLOPT_POSTFIELDS, $sResBody);
+        if ($sMethod === 'POST') {
+            curl_setopt($this->ch, CURLOPT_POST, true);
+            curl_setopt($this->ch, CURLOPT_POSTFIELDS, $sReqBody);
+            if (!isset($mReqHeader['Content-Type'])) {
+                $mReqHeader['Content-Type'] = 'application/octet-stream';
+            }
+        }
+        curl_setopt($this->ch, CURLOPT_HTTPHEADER, $this->header_mtoa($mReqHeader));
         $curl_data = curl_exec($this->ch);
         if ($curl_data === FALSE) {
             $curl_errno = curl_errno($this->ch);
@@ -294,7 +316,9 @@ class Worker {
             echo("[Error] {$curl_errno} {$curl_error}");
             return;
         }
-        return $this->getHeaderBodyByCurl($curl_data);
+        $iStatusCode = curl_getinfo($this->ch, CURLINFO_HTTP_CODE);
+        list($mResHeader, $sResBody) = $this->getHeaderBodyByCurl($curl_data);
+        return array($iStatusCode, $mResHeader, $sResBody);
     }
 
     private function getHeaderBodyByCurl($sData) {
