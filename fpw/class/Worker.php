@@ -13,9 +13,11 @@ class Worker {
     public $sWwwrootDir = '';
     public $aDefaDocument = array('index.htm', 'index.html');
     public $mMimeType = array();
+    public $ch;
 
     public function __construct() {
         $this->initMimeTypeMap(dirname(dirname(__DIR__)) . '/mime.types');
+        $this->ch = curl_init();
     }
 
     public function init() {
@@ -223,13 +225,20 @@ class Worker {
     }
 
     private function getRequest($mResHeader, $sResBody) {
+        return $this->getRequest_curl($mResHeader, $sResBody);
+    }
+
+    private function getRequest_file($mResHeader, $sResBody) {
         // 采用 file_get_contents 写的 http请求
+        //$mResHeader['connection'] = 'Keep-Alive';
         $mResHeader['user-agent'] = 'php-worker-v1';
         $mResHeader['content-type'] = 'application/octet-stream';
+        $mResHeader['content-length'] = strlen($sResBody);
         $opts = array();
         $opts['http'] = array();
         $opts['http']['timeout'] = $this->iTimeout;
         $opts['http']['method'] = 'POST';
+        //$opts['http']['protocol_version'] = '1.1';
         $opts['http']['header'] = implode("\r\n", $this->header_mtoa($mResHeader));
         $opts['http']['content'] = $sResBody;
         $cxContext = stream_context_create($opts);
@@ -264,21 +273,24 @@ class Worker {
     }
 
     private function getRequest_curl($mResHeader, $sResBody) {
+        $mResHeader['Content-Type'] = 'application/octet-stream';
         // 采用 curl 写的 http请求
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, FALSE);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, FALSE);
-        curl_setopt($ch, CURLOPT_URL, $this->sServerUrl);
-        curl_setopt($ch, CURLOPT_USERAGENT, 'php-worker-v1');
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_HEADER, true);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, $this->header_mtoa($mResHeader));
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, $sResBody);
-        $curl_data = curl_exec($ch);
+        curl_setopt($this->ch, CURLOPT_TCP_KEEPALIVE, true);
+        curl_setopt($this->ch, CURLOPT_TCP_KEEPIDLE, 120);
+        curl_setopt($this->ch, CURLOPT_TCP_KEEPINTVL, 60);
+        curl_setopt($this->ch, CURLOPT_SSL_VERIFYPEER, FALSE);
+        curl_setopt($this->ch, CURLOPT_SSL_VERIFYHOST, FALSE);
+        curl_setopt($this->ch, CURLOPT_URL, $this->sServerUrl);
+        curl_setopt($this->ch, CURLOPT_USERAGENT, 'php-worker-v1');
+        curl_setopt($this->ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($this->ch, CURLOPT_HEADER, true);
+        curl_setopt($this->ch, CURLOPT_HTTPHEADER, $this->header_mtoa($mResHeader));
+        curl_setopt($this->ch, CURLOPT_POST, true);
+        curl_setopt($this->ch, CURLOPT_POSTFIELDS, $sResBody);
+        $curl_data = curl_exec($this->ch);
         if ($curl_data === FALSE) {
-            $curl_errno = curl_errno($ch);
-            $curl_error = curl_error($ch);
+            $curl_errno = curl_errno($this->ch);
+            $curl_error = curl_error($this->ch);
             echo("[Error] {$curl_errno} {$curl_error}");
             return;
         }
