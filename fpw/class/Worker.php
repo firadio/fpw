@@ -281,6 +281,7 @@ class Worker {
         curl_setopt($this->ch, CURLOPT_USERAGENT, 'php-worker-v1');
         curl_setopt($this->ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($this->ch, CURLOPT_HEADER, true);
+        curl_setopt($this->ch, CURLOPT_SSL_SESSIONID_CACHE, true);
         if ($sMethod === 'POST') {
             curl_setopt($this->ch, CURLOPT_POST, true);
             curl_setopt($this->ch, CURLOPT_POSTFIELDS, $sReqBody);
