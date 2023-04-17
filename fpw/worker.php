@@ -20,10 +20,11 @@ echo "Firadio PHP Worker is Running for {$oWorker->fpwInfo['host']}\r\n";
 
 $oWorker->run(function ($oReq) use ($oWorker) {
     $time = date('H:i:s');
-    echo "{$time} {$oReq->sUserIP} [{$oReq->sMethod}] {$oReq->mHeader['host']}{$oReq->sUrl}\r\n";
+    echo "\r\n{$time} {$oReq->sUserIP} [{$oReq->sMethod}] {$oReq->mHeader['host']}{$oReq->sUrl}";
     $aResByProxy = $oWorker->Proxy($oReq);
     if ($aResByProxy) {
         // 如果反向代理成功，直接返回
+        echo " [{$aResByProxy[0]}]"; // 显示状态码
         return $aResByProxy;
     }
     if ($oReq->sMethod === 'GET') {
