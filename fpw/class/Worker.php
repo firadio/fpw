@@ -17,6 +17,7 @@ class Worker {
     public $sProxyUrl = '';
     public $sCookieFile = 'cookie.txt';
     public $bCurlMulti = true;
+    public $iMaxConcurrency = 50; // 最大并发请求数
 
     public function __construct() {
         $this->initMimeTypeMap(dirname(dirname(__DIR__)) . '/mime.types');
@@ -177,9 +178,6 @@ class Worker {
 
     private function run2($fCallback) {
 
-        // 最大线程数
-        $max_threads = 100;
-
         // 创建curl多句柄
         $multi_ch = curl_multi_init();
 
@@ -212,20 +210,11 @@ class Worker {
             return json_encode(array('result' => $result, 'msg' => $msg));
         };
 
-        $mReqHeader = array();
-        $this->setHeaderByFpwInfo($mReqHeader);
-        $sReqBody = '';
-
-        // 发送第一批请求
-        for ($tid = 1; $tid <= $max_threads; $tid++) {
-            $mReqHeader['fpw-tid'] = $tid;
-            $fAddToCurlMultiByFpw($mReqHeader, $sReqBody);
-        }
-
         // 开始处理请求
         do {
-            // 执行并发请求
+            usleep(1);
             curl_multi_select($multi_ch);
+            // 执行并发请求
             $status = curl_multi_exec($multi_ch, $active);
             // echo "[$active]";
             // 获取已完成的请求
@@ -292,11 +281,23 @@ class Worker {
                         $mReqHeader['fpw-rid'] = $mResHeader['fpw-rid'];
                         $mReqHeader['fpw-status'] = $iStatusCode;
                         $mReqHeader['fpw-header'] = json_encode($mFpwHeader);
+                        $fAddToCurlMultiByFpw($mReqHeader, $sReqBody);
+                        $active++;
+                        continue;
                     }
-                    $fAddToCurlMultiByFpw($mReqHeader, $sReqBody);
-                    $active++;
                     continue;
                 }
+            }
+            if ($active < $this->iMaxConcurrency) {
+                echo "[Start";
+                while ($active < $this->iMaxConcurrency) {
+                    $mReqHeader = array();
+                    $this->setHeaderByFpwInfo($mReqHeader);
+                    $fAddToCurlMultiByFpw($mReqHeader, '');
+                    $active++;
+                    echo ",{$active}";
+                }
+                echo "][OK]";
             }
         } while ($active !== 0 && $status == CURLM_OK);
 
