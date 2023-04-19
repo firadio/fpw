@@ -421,7 +421,11 @@ class Worker {
 
     private function getNewCurl($sMethod, $sUrl, $mReqHeader, $sReqBody) {
         $ch = curl_init();
+        curl_setopt($ch, CURLOPT_TIMEOUT, $this->iTimeout);
         curl_setopt($ch, CURLOPT_PIPEWAIT, true);
+        curl_setopt($ch, CURLOPT_TCP_KEEPALIVE, true);
+        curl_setopt($ch, CURLOPT_TCP_KEEPIDLE, 120);
+        curl_setopt($ch, CURLOPT_TCP_KEEPINTVL, 60);
         //curl_setopt($ch, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, FALSE);
         curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, FALSE);

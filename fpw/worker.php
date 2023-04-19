@@ -6,8 +6,6 @@ require_once __DIR__ . '/class/Worker.php';
 $oWorker = new Worker();
 $oWorker->sFramework = getenv('FPW_FRAMEWORK');
 $oWorker->sAutoload = getenv('FPW_AUTOLOAD');
-$oWorker->iTimeout = 3600;
-$oWorker->bIsDebug = false;
 $oWorker->sServerUrl = getenv('FPW_URL');
 $oWorker->fpwInfo['host'] = getenv('FPW_HOST');
 $oWorker->fpwInfo['token'] = getenv('FPW_TOKEN');
