@@ -24,7 +24,10 @@ $oWorker->run(function ($oReq) use ($oWorker) {
     $aResByProxy = $oWorker->Proxy($oReq);
     if ($aResByProxy) {
         // 如果反向代理成功，直接返回
-        echo " [{$aResByProxy[0]}]"; // 显示状态码
+        if (isset($aResByProxy[0])) {
+            // 显示状态码
+            echo " [{$aResByProxy[0]}]";
+        }
         return $aResByProxy;
     }
     if ($oReq->sMethod === 'GET') {

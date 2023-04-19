@@ -16,6 +16,7 @@ class Worker {
     public $ch;
     public $sProxyUrl = '';
     public $sCookieFile = 'cookie.txt';
+    public $bCurlMulti = true;
 
     public function __construct() {
         $this->initMimeTypeMap(dirname(dirname(__DIR__)) . '/mime.types');
@@ -145,6 +146,15 @@ class Worker {
             return;
         }
         $sUrlFull = $this->sProxyUrl . $oReq->sUrl;
+        if ($this->bCurlMulti) {
+            $mRes = array();
+            $mRes['proxy'] = array();
+            $mRes['proxy']['method'] = $oReq->sMethod;
+            $mRes['proxy']['url'] = $sUrlFull;
+            $mRes['proxy']['header'] = $oReq->mHeader;
+            $mRes['proxy']['body'] = $oReq->sBody;
+            return $mRes;
+        }
         return $this->httpRequestByCurl($oReq->sMethod, $sUrlFull, $oReq->mHeader, $oReq->sBody);
     }
 
@@ -163,19 +173,29 @@ class Worker {
         }
     }
 
-    public function run($fCallback) {
+    private function run2($fCallback) {
 
         // 最大线程数
-        $max_threads = 10;
+        $max_threads = 100;
 
         // 创建curl多句柄
         $multi_ch = curl_multi_init();
 
         // 初始化共享句柄
-        $sh = curl_share_init();
-        curl_share_setopt($sh, CURLSHOPT_SHARE, CURL_LOCK_DATA_COOKIE);
-        curl_share_setopt($sh, CURLSHOPT_SHARE, CURL_LOCK_DATA_DNS);
-        curl_share_setopt($sh, CURLSHOPT_SHARE, CURL_LOCK_DATA_SSL_SESSION);
+        $sh_fpw = curl_share_init();
+        curl_share_setopt($sh_fpw, CURLSHOPT_SHARE, CURL_LOCK_DATA_COOKIE);
+        curl_share_setopt($sh_fpw, CURLSHOPT_SHARE, CURL_LOCK_DATA_DNS);
+        curl_share_setopt($sh_fpw, CURLSHOPT_SHARE, CURL_LOCK_DATA_SSL_SESSION);
+
+        $sh_proxy = curl_share_init();
+        curl_share_setopt($sh_proxy, CURLSHOPT_SHARE, CURL_LOCK_DATA_DNS);
+        curl_share_setopt($sh_proxy, CURLSHOPT_SHARE, CURL_LOCK_DATA_SSL_SESSION);
+
+        $fCurlSetOptByFpw = function ($ch) {
+            curl_setopt($ch, CURLOPT_USERAGENT, 'php-worker-v1');
+            curl_setopt($ch, CURLOPT_COOKIEFILE, $this->sCookieFile);
+            curl_setopt($ch, CURLOPT_COOKIEJAR, $this->sCookieFile);
+        };
 
         $mReqHeader = array();
         $this->setHeaderByFpwInfo($mReqHeader);
@@ -185,8 +205,11 @@ class Worker {
         for ($tid = 1; $tid <= $max_threads; $tid++) {
             $mReqHeader['fpw-tid'] = $tid;
             $ch = $this->getNewCurl('POST', $this->sServerUrl, $mReqHeader, $sReqBody);
-            curl_setopt($ch, CURLOPT_SHARE, $sh);
-            curl_setopt($ch, CURLOPT_PRIVATE, 'fpw');
+            $fCurlSetOptByFpw($ch);
+            curl_setopt($ch, CURLOPT_SHARE, $sh_fpw);
+            $custom_data = array();
+            $custom_data['type'] = 'fpw';
+            curl_setopt($ch, CURLOPT_PRIVATE, json_encode($custom_data));
             curl_multi_add_handle($multi_ch, $ch);
         }
 
@@ -203,12 +226,31 @@ class Worker {
                 $ch = $info['handle'];
                 if ($info['result'] === CURLE_OK) {
                     $curl_data = curl_multi_getcontent($ch);
-                    list($mResHeader, $sResBody) = $this->getHeaderBodyByCurl($curl_data);
+                    list($iStatusCode, $mResHeader, $sResBody) = $this->getHeaderBodyByCurl($curl_data);
                 }
-                $custom_data = curl_getinfo($ch, CURLINFO_PRIVATE);
+                $custom_data = json_decode(curl_getinfo($ch, CURLINFO_PRIVATE), true);
                 curl_multi_remove_handle($multi_ch, $ch);
                 curl_close($ch);
-                if ($custom_data === 'fpw') {
+                if ($custom_data['type'] === 'proxy') {
+                    // 如果是后端服务器的回复
+                    // 提取一个保存的请求，并发起fpw回复浏览器
+                    if ($info['result'] === CURLE_OK) {
+                        $mReqHeader['fpw-rid'] = $custom_data['fpw-rid'];
+                        $mReqHeader['fpw-status'] = $iStatusCode;
+                        $mReqHeader['fpw-header'] = json_encode($mResHeader);
+                        $ch = $this->getNewCurl('POST', $this->sServerUrl, $mReqHeader, $sResBody);
+                        $fCurlSetOptByFpw($ch);
+                        curl_setopt($ch, CURLOPT_SHARE, $sh_fpw);
+                        $custom_data['type'] = 'fpw';
+                        curl_setopt($ch, CURLOPT_PRIVATE, json_encode($custom_data));
+                        curl_multi_add_handle($multi_ch, $ch);
+                        $active++;
+                        continue;
+                    }
+                    // 反向代理失败了，发起fpw回复浏览器503-bad-gateway
+                    continue;
+                }
+                if ($custom_data['type'] === 'fpw') {
                     if ($info['result'] === CURLE_OK) {
                         $oReq = new Request();
                         $oReq->sUserIP = $mResHeader['fpw-uip'];
@@ -216,23 +258,38 @@ class Worker {
                         $oReq->sUrl = $mResHeader['fpw-url'];
                         $oReq->mHeader = isset($mResHeader['fpw-header']) ? json_decode($mResHeader['fpw-header'], true) : array();
                         $oReq->sBody = $sResBody;
-                        list($iStatusCode, $mFpwHeader, $sReqBody) = $fCallback($oReq);
+                        $o = $fCallback($oReq);
+                        if (isset($o['proxy'])) {
+                            // 如果需要反向代理
+                            $ch = $this->getNewCurl($o['proxy']['method'], $o['proxy']['url'], $o['proxy']['header'], $o['proxy']['body']);
+                            curl_setopt($ch, CURLOPT_SHARE, $sh_proxy);
+                            $custom_data['type'] = 'proxy';
+                            $custom_data['fpw-rid'] = $mResHeader['fpw-rid'];
+                            curl_setopt($ch, CURLOPT_PRIVATE, json_encode($custom_data));
+                            curl_multi_add_handle($multi_ch, $ch);
+                            $active++;
+                            continue;
+                        }
+                        list($iStatusCode, $mFpwHeader, $sReqBody) = $o;
                         $mReqHeader['fpw-rid'] = $mResHeader['fpw-rid'];
                         $mReqHeader['fpw-status'] = $iStatusCode;
                         $mReqHeader['fpw-header'] = json_encode($mFpwHeader);
                     }
                     $ch = $this->getNewCurl('POST', $this->sServerUrl, $mReqHeader, $sReqBody);
-                    curl_setopt($ch, CURLOPT_SHARE, $sh);
-                    curl_setopt($ch, CURLOPT_PRIVATE, 'fpw');
+                    $fCurlSetOptByFpw($ch);
+                    curl_setopt($ch, CURLOPT_SHARE, $sh_fpw);
+                    $custom_data['type'] = 'fpw';
+                    curl_setopt($ch, CURLOPT_PRIVATE, json_encode($custom_data));
                     curl_multi_add_handle($multi_ch, $ch);
                     $active++;
+                    continue;
                 }
             }
         } while ($active !== 0 && $status == CURLM_OK);
 
     }
 
-    public function run2($fCallback) {
+    private function run1($fCallback) {
         $mResHeader = array();
         $this->setHeaderByFpwInfo($mResHeader);
         $sResBody = '';
@@ -252,6 +309,14 @@ class Worker {
             $mResHeader['fpw-status'] = $iStatusCode;
             $mResHeader['fpw-header'] = json_encode($mFpwHeader);
         }
+    }
+
+    public function run($fCallback) {
+        if ($this->bCurlMulti) {
+            $this->run2($fCallback);
+            return;
+        }
+        $this->run1($fCallback);
     }
 
     private function setHeaderByFpwInfo(&$mResHeader) {
@@ -344,12 +409,9 @@ class Worker {
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_PIPEWAIT, true);
         //curl_setopt($ch, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
-        curl_setopt($ch, CURLOPT_COOKIEFILE, $this->sCookieFile);
-        curl_setopt($ch, CURLOPT_COOKIEJAR, $this->sCookieFile);
         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, FALSE);
         curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, FALSE);
         curl_setopt($ch, CURLOPT_URL, $sUrl);
-        curl_setopt($ch, CURLOPT_USERAGENT, 'php-worker-v1');
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_HEADER, true);
         curl_setopt($ch, CURLOPT_SSL_SESSIONID_CACHE, true);
@@ -393,8 +455,8 @@ class Worker {
             echo("[Error] {$curl_errno} {$curl_error}");
             return;
         }
-        $iStatusCode = curl_getinfo($this->ch, CURLINFO_HTTP_CODE);
-        list($mResHeader, $sResBody) = $this->getHeaderBodyByCurl($curl_data);
+        //$iStatusCode = curl_getinfo($this->ch, CURLINFO_HTTP_CODE);
+        list($iStatusCode, $mResHeader, $sResBody) = $this->getHeaderBodyByCurl($curl_data);
         return array($iStatusCode, $mResHeader, $sResBody);
     }
 
@@ -415,7 +477,9 @@ class Worker {
         }
         $aHeader = explode("\r\n", $sHeader);
         $sBody = substr($sData, $iRet + strlen($sDivSign));
-        return array($this->header_atom($aHeader), $sBody);
+        $mHeader = $this->header_atom($aHeader);
+        $aHeader0 = explode(' ', $aHeader[0]);
+        return array($aHeader0[1], $mHeader, $sBody);
     }
 
 }
