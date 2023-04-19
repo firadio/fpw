@@ -203,6 +203,13 @@ class Worker {
             curl_multi_add_handle($multi_ch, $ch);
         };
 
+        $fGetMsgByCurlInfo = function ($result, $msg) {
+            if ($result === CURLE_COULDNT_CONNECT) {
+                return '反向代理连不到源服务器';
+            }
+            return json_encode(array('result' => $result, 'msg' => $msg));
+        };
+
         $mReqHeader = array();
         $this->setHeaderByFpwInfo($mReqHeader);
         $sReqBody = '';
@@ -235,15 +242,28 @@ class Worker {
                 if ($custom_data['type'] === 'proxy') {
                     // 如果是后端服务器的回复
                     // 提取一个保存的请求，并发起fpw回复浏览器
+                    $mReqHeader['fpw-rid'] = $custom_data['fpw-rid'];
                     if ($info['result'] === CURLE_OK) {
-                        $mReqHeader['fpw-rid'] = $custom_data['fpw-rid'];
                         $mReqHeader['fpw-status'] = $iStatusCode;
                         $mReqHeader['fpw-header'] = json_encode($mResHeader);
                         $fAddToCurlMultiByFpw($mReqHeader, $sResBody);
                         $active++;
                         continue;
                     }
-                    // 反向代理失败了，发起fpw回复浏览器503-bad-gateway
+                    // 反向代理失败了，发起fpw回复浏览器502-bad-gateway
+                    $mReqHeader['fpw-status'] = 502;
+                    $mReqHeader['fpw-header'] = array();
+                    $mReqHeader['fpw-header'] = call_user_func(function () {
+                        $mHeader = array();
+                        $mHeader['content-type'] = 'text/html;charset=utf-8';
+                        return json_encode($mHeader);
+                    });
+                    $aResBody = array();
+                    $aResBody[] = '<meta charset="utf-8">';
+                    $aResBody[] = '<h1>502 Bad Gateway</h1>';
+                    $aResBody[] = $fGetMsgByCurlInfo($info['result'], $info['msg']);
+                    $fAddToCurlMultiByFpw($mReqHeader, implode('', $aResBody));
+                    $active++;
                     continue;
                 }
                 if ($custom_data['type'] === 'fpw') {
