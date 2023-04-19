@@ -191,10 +191,16 @@ class Worker {
         curl_share_setopt($sh_proxy, CURLSHOPT_SHARE, CURL_LOCK_DATA_DNS);
         curl_share_setopt($sh_proxy, CURLSHOPT_SHARE, CURL_LOCK_DATA_SSL_SESSION);
 
-        $fCurlSetOptByFpw = function ($ch) {
+        $fAddToCurlMultiByFpw = function ($mReqHeader, $sReqBody) use ($multi_ch, $sh_fpw) {
+            $ch = $this->getNewCurl('POST', $this->sServerUrl, $mReqHeader, $sReqBody);
+            $custom_data = array();
+            $custom_data['type'] = 'fpw';
+            curl_setopt($ch, CURLOPT_PRIVATE, json_encode($custom_data));
             curl_setopt($ch, CURLOPT_USERAGENT, 'php-worker-v1');
             curl_setopt($ch, CURLOPT_COOKIEFILE, $this->sCookieFile);
             curl_setopt($ch, CURLOPT_COOKIEJAR, $this->sCookieFile);
+            curl_setopt($ch, CURLOPT_SHARE, $sh_fpw);
+            curl_multi_add_handle($multi_ch, $ch);
         };
 
         $mReqHeader = array();
@@ -204,13 +210,7 @@ class Worker {
         // 发送第一批请求
         for ($tid = 1; $tid <= $max_threads; $tid++) {
             $mReqHeader['fpw-tid'] = $tid;
-            $ch = $this->getNewCurl('POST', $this->sServerUrl, $mReqHeader, $sReqBody);
-            $fCurlSetOptByFpw($ch);
-            curl_setopt($ch, CURLOPT_SHARE, $sh_fpw);
-            $custom_data = array();
-            $custom_data['type'] = 'fpw';
-            curl_setopt($ch, CURLOPT_PRIVATE, json_encode($custom_data));
-            curl_multi_add_handle($multi_ch, $ch);
+            $fAddToCurlMultiByFpw($mReqHeader, $sReqBody);
         }
 
         // 开始处理请求
@@ -221,6 +221,7 @@ class Worker {
             // echo "[$active]";
             // 获取已完成的请求
             while ($info = curl_multi_info_read($multi_ch)) {
+                $mReqHeader = array();
                 $this->setHeaderByFpwInfo($mReqHeader);
                 $sReqBody = '';
                 $ch = $info['handle'];
@@ -238,12 +239,7 @@ class Worker {
                         $mReqHeader['fpw-rid'] = $custom_data['fpw-rid'];
                         $mReqHeader['fpw-status'] = $iStatusCode;
                         $mReqHeader['fpw-header'] = json_encode($mResHeader);
-                        $ch = $this->getNewCurl('POST', $this->sServerUrl, $mReqHeader, $sResBody);
-                        $fCurlSetOptByFpw($ch);
-                        curl_setopt($ch, CURLOPT_SHARE, $sh_fpw);
-                        $custom_data['type'] = 'fpw';
-                        curl_setopt($ch, CURLOPT_PRIVATE, json_encode($custom_data));
-                        curl_multi_add_handle($multi_ch, $ch);
+                        $fAddToCurlMultiByFpw($mReqHeader, $sResBody);
                         $active++;
                         continue;
                     }
@@ -275,12 +271,7 @@ class Worker {
                         $mReqHeader['fpw-status'] = $iStatusCode;
                         $mReqHeader['fpw-header'] = json_encode($mFpwHeader);
                     }
-                    $ch = $this->getNewCurl('POST', $this->sServerUrl, $mReqHeader, $sReqBody);
-                    $fCurlSetOptByFpw($ch);
-                    curl_setopt($ch, CURLOPT_SHARE, $sh_fpw);
-                    $custom_data['type'] = 'fpw';
-                    curl_setopt($ch, CURLOPT_PRIVATE, json_encode($custom_data));
-                    curl_multi_add_handle($multi_ch, $ch);
+                    $fAddToCurlMultiByFpw($mReqHeader, $sReqBody);
                     $active++;
                     continue;
                 }
