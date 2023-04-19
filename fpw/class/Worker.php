@@ -210,9 +210,32 @@ class Worker {
             return json_encode(array('result' => $result, 'msg' => $msg));
         };
 
+        $curCount = 0;
+        $fNewFpwCurlMulti = function () use ($fAddToCurlMultiByFpw, &$curCount) {
+            $count = $this->iMaxConcurrency - $curCount;
+            if ($count <= 0) {
+                return;
+            }
+            if ($count > 10) {
+                $count = 10;
+            }
+            echo "\r\n[Start";
+            for ($i = 1; $i <= $count; $i++) {
+                $mReqHeader = array();
+                $this->setHeaderByFpwInfo($mReqHeader);
+                $fAddToCurlMultiByFpw($mReqHeader, '');
+                $curCount++;
+                echo ",{$curCount}";
+            }
+            echo "]\r\n";
+        };
+
+        $fNewFpwCurlMulti();
+
         // 开始处理请求
         do {
             usleep(1);
+
             curl_multi_select($multi_ch);
             // 执行并发请求
             $status = curl_multi_exec($multi_ch, $active);
@@ -238,7 +261,7 @@ class Worker {
                         $mReqHeader['fpw-status'] = $iStatusCode;
                         $mReqHeader['fpw-header'] = json_encode($mResHeader);
                         $fAddToCurlMultiByFpw($mReqHeader, $sResBody);
-                        $active++;
+                        $fNewFpwCurlMulti();
                         continue;
                     }
                     // 反向代理失败了，发起fpw回复浏览器502-bad-gateway
@@ -254,7 +277,7 @@ class Worker {
                     $aResBody[] = '<h1>502 Bad Gateway</h1>';
                     $aResBody[] = $fGetMsgByCurlInfo($info['result'], $info['msg']);
                     $fAddToCurlMultiByFpw($mReqHeader, implode('', $aResBody));
-                    $active++;
+                    $fNewFpwCurlMulti();
                     continue;
                 }
                 if ($custom_data['type'] === 'fpw') {
@@ -274,7 +297,7 @@ class Worker {
                             $custom_data['fpw-rid'] = $mResHeader['fpw-rid'];
                             curl_setopt($ch, CURLOPT_PRIVATE, json_encode($custom_data));
                             curl_multi_add_handle($multi_ch, $ch);
-                            $active++;
+                            $fNewFpwCurlMulti();
                             continue;
                         }
                         list($iStatusCode, $mFpwHeader, $sReqBody) = $o;
@@ -282,24 +305,17 @@ class Worker {
                         $mReqHeader['fpw-status'] = $iStatusCode;
                         $mReqHeader['fpw-header'] = json_encode($mFpwHeader);
                         $fAddToCurlMultiByFpw($mReqHeader, $sReqBody);
-                        $active++;
+                        $fNewFpwCurlMulti();
                         continue;
                     }
+                    // 失败了，就要重新加入并发，确保并发数不会减少
+                    $curCount--;
+                    $fNewFpwCurlMulti();
                     continue;
                 }
             }
-            if ($active < $this->iMaxConcurrency) {
-                echo "[Start";
-                while ($active < $this->iMaxConcurrency) {
-                    $mReqHeader = array();
-                    $this->setHeaderByFpwInfo($mReqHeader);
-                    $fAddToCurlMultiByFpw($mReqHeader, '');
-                    $active++;
-                    echo ",{$active}";
-                }
-                echo "][OK]";
-            }
-        } while ($active !== 0 && $status == CURLM_OK);
+
+        } while ($status === CURLM_OK);
 
     }
 
@@ -427,6 +443,7 @@ class Worker {
         curl_setopt($ch, CURLOPT_TCP_KEEPIDLE, 120);
         curl_setopt($ch, CURLOPT_TCP_KEEPINTVL, 60);
         //curl_setopt($ch, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
+        curl_setopt($ch, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2TLS);
         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, FALSE);
         curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, FALSE);
         curl_setopt($ch, CURLOPT_URL, $sUrl);
