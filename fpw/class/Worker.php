@@ -146,16 +146,18 @@ class Worker {
             return;
         }
         $sUrlFull = $this->sProxyUrl . $oReq->sUrl;
+        $mHeader = $oReq->mHeader;
+        $mHeader['x-forwarded-for'] = $oReq->sUserIP;
         if ($this->bCurlMulti) {
             $mRes = array();
             $mRes['proxy'] = array();
             $mRes['proxy']['method'] = $oReq->sMethod;
             $mRes['proxy']['url'] = $sUrlFull;
-            $mRes['proxy']['header'] = $oReq->mHeader;
+            $mRes['proxy']['header'] = $mHeader;
             $mRes['proxy']['body'] = $oReq->sBody;
             return $mRes;
         }
-        return $this->httpRequestByCurl($oReq->sMethod, $sUrlFull, $oReq->mHeader, $oReq->sBody);
+        return $this->httpRequestByCurl($oReq->sMethod, $sUrlFull, $mHeader, $oReq->sBody);
     }
 
     public function FileServer($oReq) {
