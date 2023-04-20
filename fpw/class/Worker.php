@@ -219,7 +219,8 @@ class Worker {
             if ($count > 10) {
                 $count = 10;
             }
-            echo "\r\n[Start";
+            $time = date('H:i:s');
+            echo "\r\n{$time} [Start";
             for ($i = 1; $i <= $count; $i++) {
                 $mReqHeader = array();
                 $this->setHeaderByFpwInfo($mReqHeader);
@@ -227,7 +228,7 @@ class Worker {
                 $curCount++;
                 echo ",{$curCount}";
             }
-            echo "]\r\n";
+            echo "]";
         };
 
         $fNewFpwCurlMulti();
