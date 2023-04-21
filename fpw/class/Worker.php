@@ -191,9 +191,9 @@ class Worker {
         curl_share_setopt($sh_proxy, CURLSHOPT_SHARE, CURL_LOCK_DATA_DNS);
         curl_share_setopt($sh_proxy, CURLSHOPT_SHARE, CURL_LOCK_DATA_SSL_SESSION);
 
-        $sFpwRequest = 'sign';
+        $sFpwRequest = 1;
 
-        $fAddToCurlMultiByFpw = function ($mReqHeader, $sReqBody) use ($multi_ch, $sh_fpw, &$sFpwRequest) {
+        $fAddToCurlMultiByFpw = function ($mReqHeader = array(), $sReqBody = '') use ($multi_ch, $sh_fpw, &$sFpwRequest) {
             if ($sFpwRequest) {
                 $mReqHeader['fpw-request'] = $sFpwRequest;
             }
@@ -216,7 +216,7 @@ class Worker {
         };
 
         $curCount = 0;
-        $fNewFpwCurlMulti = function ($limit = 1) use ($fAddToCurlMultiByFpw, &$curCount) {
+        $fNewFpwCurlMulti = function ($limit = 1, $title = '开始连接') use ($fAddToCurlMultiByFpw, &$curCount) {
             $count = $this->iMaxConcurrency - $curCount;
             if ($count <= 0) {
                 return;
@@ -225,11 +225,9 @@ class Worker {
                 $count = $limit;
             }
             $time = date('H:i:s');
-            echo "\r\n{$time} [Connect";
+            echo "\r\n{$time} [{$title}";
             for ($i = 1; $i <= $count; $i++) {
-                $mReqHeader = array();
-                $this->setHeaderByFpwInfo($mReqHeader);
-                $fAddToCurlMultiByFpw($mReqHeader, '');
+                $fAddToCurlMultiByFpw();
                 $curCount++;
                 echo ",{$curCount}";
             }
@@ -237,7 +235,7 @@ class Worker {
             return true;
         };
 
-        $fNewFpwCurlMulti(1);
+        $fNewFpwCurlMulti(1, '开始连接');
 
         $bStop = false;
 
@@ -251,10 +249,10 @@ class Worker {
             // echo "[$active]";
             // 获取已完成的请求
             $iReadCount = 0;
+            $iFailCount = 0;
             while (!$bStop && $info = curl_multi_info_read($multi_ch)) {
                 $iReadCount++;
                 $mReqHeader = array();
-                $this->setHeaderByFpwInfo($mReqHeader);
                 $sReqBody = '';
                 $ch = $info['handle'];
                 if ($info['result'] === CURLE_OK) {
@@ -291,9 +289,10 @@ class Worker {
                 }
                 if ($custom_data['type'] === 'fpw') {
                     if ($info['result'] === CURLE_OK) {
-                        if ($iStatusCode == 200) {
-                            // 成功连接服务器后就不用发送请求标记了
-                            $sFpwRequest = '';
+                        $iFpwStatus = isset($mResHeader['fpw-status']) ? intval($mResHeader['fpw-status']) : 0;
+                        if ($iStatusCode == 200 && $iFpwStatus === 200) {
+                            // 成功连接服务器后就要将请求标记设成3
+                            $sFpwRequest = 3;
                         } else {
                             // 假如服务器拒绝连接就退出程序
                             $bStop = true;
@@ -302,8 +301,13 @@ class Worker {
                             // 来自FPW服务器的消息
                             $mResBody = json_decode($sResBody, true);
                             if (is_array($mResBody)) {
-                                echo $mResBody['msg'];
+                                echo ' -> [连接成功]';
+                                if (!empty($mResBody['msg'])) {
+                                    echo ' -> ';
+                                    echo $mResBody['msg'];
+                                }
                             } else {
+                                echo ' -> ';
                                 echo $sResBody;
                             }
                             $curCount--;
@@ -337,11 +341,27 @@ class Worker {
                     }
                     // 失败了，就要重新加入并发，确保并发数不会减少
                     $curCount--;
+                    $iFailCount++;
                     continue;
                 }
             }
             if (!$bStop && $iReadCount) {
-                $fNewFpwCurlMulti(10);
+                $iConnCount = 10;
+                $sConnMsg = '并发建立会话';
+                if ($iFailCount) {
+                    $iConnCount = 1;
+                    $sConnMsg = '重连中';
+                    // 掉线了
+                    if ($sFpwRequest === 1) {
+                        echo ' -> [连接失败]';
+                    } else if ($sFpwRequest === 2) {
+                        echo ' -> [重接失败]';
+                    } else {
+                        $sFpwRequest = 2;
+                        echo ' -> [掉线了]';
+                    }
+                }
+                $fNewFpwCurlMulti($iConnCount, $sConnMsg);
             }
         } while (!$bStop && $status === CURLM_OK);
 
