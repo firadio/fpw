@@ -191,7 +191,12 @@ class Worker {
         curl_share_setopt($sh_proxy, CURLSHOPT_SHARE, CURL_LOCK_DATA_DNS);
         curl_share_setopt($sh_proxy, CURLSHOPT_SHARE, CURL_LOCK_DATA_SSL_SESSION);
 
-        $fAddToCurlMultiByFpw = function ($mReqHeader, $sReqBody) use ($multi_ch, $sh_fpw) {
+        $sFpwRequest = 'sign';
+
+        $fAddToCurlMultiByFpw = function ($mReqHeader, $sReqBody) use ($multi_ch, $sh_fpw, &$sFpwRequest) {
+            if ($sFpwRequest) {
+                $mReqHeader['fpw-request'] = $sFpwRequest;
+            }
             $ch = $this->getNewCurl('POST', $this->sServerUrl, $mReqHeader, $sReqBody);
             $custom_data = array();
             $custom_data['type'] = 'fpw';
@@ -211,16 +216,16 @@ class Worker {
         };
 
         $curCount = 0;
-        $fNewFpwCurlMulti = function () use ($fAddToCurlMultiByFpw, &$curCount) {
+        $fNewFpwCurlMulti = function ($limit = 1) use ($fAddToCurlMultiByFpw, &$curCount) {
             $count = $this->iMaxConcurrency - $curCount;
             if ($count <= 0) {
                 return;
             }
-            if ($count > 10) {
-                $count = 10;
+            if ($count > $limit) {
+                $count = $limit;
             }
             $time = date('H:i:s');
-            echo "\r\n{$time} [Start";
+            echo "\r\n{$time} [Connect";
             for ($i = 1; $i <= $count; $i++) {
                 $mReqHeader = array();
                 $this->setHeaderByFpwInfo($mReqHeader);
@@ -229,9 +234,12 @@ class Worker {
                 echo ",{$curCount}";
             }
             echo "]";
+            return true;
         };
 
-        $fNewFpwCurlMulti();
+        $fNewFpwCurlMulti(1);
+
+        $bStop = false;
 
         // 开始处理请求
         do {
@@ -242,7 +250,9 @@ class Worker {
             $status = curl_multi_exec($multi_ch, $active);
             // echo "[$active]";
             // 获取已完成的请求
-            while ($info = curl_multi_info_read($multi_ch)) {
+            $iReadCount = 0;
+            while (!$bStop && $info = curl_multi_info_read($multi_ch)) {
+                $iReadCount++;
                 $mReqHeader = array();
                 $this->setHeaderByFpwInfo($mReqHeader);
                 $sReqBody = '';
@@ -262,7 +272,6 @@ class Worker {
                         $mReqHeader['fpw-status'] = $iStatusCode;
                         $mReqHeader['fpw-header'] = json_encode($mResHeader);
                         $fAddToCurlMultiByFpw($mReqHeader, $sResBody);
-                        $fNewFpwCurlMulti();
                         continue;
                     }
                     // 反向代理失败了，发起fpw回复浏览器502-bad-gateway
@@ -278,11 +287,29 @@ class Worker {
                     $aResBody[] = '<h1>502 Bad Gateway</h1>';
                     $aResBody[] = $fGetMsgByCurlInfo($info['result'], $info['msg']);
                     $fAddToCurlMultiByFpw($mReqHeader, implode('', $aResBody));
-                    $fNewFpwCurlMulti();
                     continue;
                 }
                 if ($custom_data['type'] === 'fpw') {
                     if ($info['result'] === CURLE_OK) {
+                        if ($iStatusCode == 200) {
+                            // 成功连接服务器后就不用发送请求标记了
+                            $sFpwRequest = '';
+                        } else {
+                            // 假如服务器拒绝连接就退出程序
+                            $bStop = true;
+                        }
+                        if (!isset($mResHeader['fpw-rid'])) {
+                            // 来自FPW服务器的消息
+                            $mResBody = json_decode($sResBody, true);
+                            if (is_array($mResBody)) {
+                                echo $mResBody['msg'];
+                            } else {
+                                echo $sResBody;
+                            }
+                            $curCount--;
+                            continue;
+                        }
+                        // 来自浏览器的请求
                         $oReq = new Request();
                         $oReq->sUserIP = $mResHeader['fpw-uip'];
                         $oReq->sMethod = $mResHeader['fpw-method'];
@@ -298,25 +325,25 @@ class Worker {
                             $custom_data['fpw-rid'] = $mResHeader['fpw-rid'];
                             curl_setopt($ch, CURLOPT_PRIVATE, json_encode($custom_data));
                             curl_multi_add_handle($multi_ch, $ch);
-                            $fNewFpwCurlMulti();
                             continue;
                         }
+                        // 将程序的处理结果通过FPW服务器转发到浏览器
                         list($iStatusCode, $mFpwHeader, $sReqBody) = $o;
                         $mReqHeader['fpw-rid'] = $mResHeader['fpw-rid'];
                         $mReqHeader['fpw-status'] = $iStatusCode;
                         $mReqHeader['fpw-header'] = json_encode($mFpwHeader);
                         $fAddToCurlMultiByFpw($mReqHeader, $sReqBody);
-                        $fNewFpwCurlMulti();
                         continue;
                     }
                     // 失败了，就要重新加入并发，确保并发数不会减少
                     $curCount--;
-                    $fNewFpwCurlMulti();
                     continue;
                 }
             }
-
-        } while ($status === CURLM_OK);
+            if (!$bStop && $iReadCount) {
+                $fNewFpwCurlMulti(10);
+            }
+        } while (!$bStop && $status === CURLM_OK);
 
     }
 

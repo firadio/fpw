@@ -14,7 +14,7 @@ $oWorker->sWwwrootDir = getenv('FPW_PUBLIC');
 $oWorker->aDefaDocument = array('index.htm', 'index.html');
 $oWorker->init();
 
-echo "Firadio PHP Worker is Running for {$oWorker->fpwInfo['host']}\r\n";
+echo "Firadio PHP Worker v1.0";
 
 $oWorker->run(function ($oReq) use ($oWorker) {
     $time = date('H:i:s');
