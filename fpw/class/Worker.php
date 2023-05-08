@@ -7,7 +7,7 @@ class Worker {
     public $sFramework = 'tp';
     public $sAutoload = '/tp/vendor/autoload.php';
     public $sServerUrl = 'http://127.0.0.1';
-    public $iTimeout = 3600;
+    public $iTimeout;
     public $fpwInfo = array();
     public $bIsDebug = FALSE;
     public $sWwwrootDir = '';
@@ -201,7 +201,7 @@ class Worker {
             $custom_data = array();
             $custom_data['type'] = 'fpw';
             curl_setopt($ch, CURLOPT_PRIVATE, json_encode($custom_data));
-            curl_setopt($ch, CURLOPT_USERAGENT, 'php-worker-v1');
+            curl_setopt($ch, CURLOPT_USERAGENT, 'php-worker-v2');
             curl_setopt($ch, CURLOPT_COOKIEFILE, $this->sCookieFile);
             curl_setopt($ch, CURLOPT_COOKIEJAR, $this->sCookieFile);
             curl_setopt($ch, CURLOPT_SHARE, $sh_fpw);
@@ -290,7 +290,7 @@ class Worker {
                 if ($custom_data['type'] === 'fpw') {
                     if ($info['result'] === CURLE_OK) {
                         $iFpwStatus = isset($mResHeader['fpw-status']) ? intval($mResHeader['fpw-status']) : 0;
-                        if ($iStatusCode == 200 && $iFpwStatus === 200) {
+                        if ($iStatusCode == 200 && $iFpwStatus >= 200 && $iFpwStatus <= 299) {
                             // 成功连接服务器后就要将请求标记设成3
                             $sFpwRequest = 3;
                         } else {
@@ -485,7 +485,9 @@ class Worker {
 
     private function getNewCurl($sMethod, $sUrl, $mReqHeader, $sReqBody) {
         $ch = curl_init();
-        curl_setopt($ch, CURLOPT_TIMEOUT, $this->iTimeout);
+        if ($this->iTimeout) {
+          curl_setopt($ch, CURLOPT_TIMEOUT, $this->iTimeout);
+        }
         curl_setopt($ch, CURLOPT_PIPEWAIT, true);
         curl_setopt($ch, CURLOPT_TCP_KEEPALIVE, true);
         curl_setopt($ch, CURLOPT_TCP_KEEPIDLE, 120);
