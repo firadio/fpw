@@ -430,7 +430,12 @@ class Worker {
             }
             $sKey = strtolower(substr($sLine, 0, $i));
             $sValue = substr($sLine, $i + strlen($sSign));
-            $mHeader[$sKey] = $sValue;
+            if (isset($mHeader[$sKey])) {
+                $mHeader[$sKey] = array($mHeader[$sKey]);
+                $mHeader[$sKey][] = $sValue;
+            } else {
+                $mHeader[$sKey] = $sValue;
+            }
         }
         return $mHeader;
     }
@@ -438,8 +443,14 @@ class Worker {
     private function header_mtoa($mHeader) {
         // 将Hastable类型转为Array
         $aHeader = array();
-        foreach($mHeader as $sKey => $sValue) {
-            $aHeader[] = $sKey . ': ' . $sValue;
+        foreach($mHeader as $sKey => $aValue) {
+            if (is_array($aValue)) {
+                foreach ($aValue as $sValue) {
+                    $aHeader[] = $sKey . ': ' . $sValue;
+                }
+            } else {
+                $aHeader[] = $sKey . ': ' . $aValue;
+            }
         }
         return $aHeader;
     }

@@ -1,8 +1,11 @@
 @ECHO OFF
 setlocal ENABLEDELAYEDEXPANSION
+set path=%path%;../../php
 cd /d %~dp0
-for %%i in (%0) do (set "name=%%~ni")
-title %0
+IF NOT DEFINED title (
+  set title=%0
+)
+title %title%
 set FPW_URL=https://fpw.feieryun.cn:379/
 rem set FPW_PROXY_URL=http://127.0.0.1
 set FPW_FRAMEWORK=tp

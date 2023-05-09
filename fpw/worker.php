@@ -15,7 +15,7 @@ $oWorker->sCookieFile = getenv('FPW_COOKIE');
 $oWorker->aDefaDocument = array('index.htm', 'index.html');
 $oWorker->init();
 
-echo "Firadio PHP Worker v1.0";
+echo "Firadio PHP Worker v2.0";
 
 $oWorker->run(function ($oReq) use ($oWorker) {
     $time = date('H:i:s');
