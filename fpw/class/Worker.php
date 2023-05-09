@@ -313,7 +313,7 @@ class Worker {
                                     echo ' -> ';
                                     echo $mResBody['msg'];
                                 }
-                            } else {
+                            } else if ($sResBody) {
                                 echo ' -> ';
                                 echo $sResBody;
                             }
