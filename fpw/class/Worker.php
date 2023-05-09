@@ -216,7 +216,7 @@ class Worker {
         };
 
         $curCount = 0;
-        $fNewFpwCurlMulti = function ($limit = 1, $title = '开始连接') use ($fAddToCurlMultiByFpw, &$curCount) {
+        $fNewFpwCurlMulti = function ($limit = 1, $title) use ($fAddToCurlMultiByFpw, &$curCount) {
             $count = $this->iMaxConcurrency - $curCount;
             if ($count <= 0) {
                 return;
@@ -225,13 +225,20 @@ class Worker {
                 $count = $limit;
             }
             $time = date('H:i:s');
-            echo "\r\n{$time} [{$title}";
+            $bIsDisp = $title ? true : false;
+            if ($bIsDisp) {
+                echo "\r\n{$time} [{$title}";
+            }
             for ($i = 1; $i <= $count; $i++) {
                 $fAddToCurlMultiByFpw();
                 $curCount++;
-                echo ",{$curCount}";
+                if ($bIsDisp) {
+                    echo ",{$curCount}";
+                }
             }
-            echo "]";
+            if ($bIsDisp) {
+                echo "]";
+            }
             return true;
         };
 
@@ -347,7 +354,10 @@ class Worker {
             }
             if (!$bStop && $iReadCount) {
                 $iConnCount = 10;
-                $sConnMsg = '并发建立会话';
+                $sConnMsg = '';
+                if (0) {
+                    $sConnMsg = '并发建立会话';
+                }
                 if ($iFailCount) {
                     $iConnCount = 1;
                     $sConnMsg = '重连中';
@@ -359,6 +369,11 @@ class Worker {
                     } else {
                         $sFpwRequest = 2;
                         echo ' -> [掉线了]';
+                    }
+                    echo ' ';
+                    for ($i = 10; $i > 0; $i--) {
+                      echo "{$i}.";
+                      sleep(1);
                     }
                 }
                 $fNewFpwCurlMulti($iConnCount, $sConnMsg);
@@ -486,7 +501,7 @@ class Worker {
     private function getNewCurl($sMethod, $sUrl, $mReqHeader, $sReqBody) {
         $ch = curl_init();
         if ($this->iTimeout) {
-          curl_setopt($ch, CURLOPT_TIMEOUT, $this->iTimeout);
+            curl_setopt($ch, CURLOPT_TIMEOUT, $this->iTimeout);
         }
         curl_setopt($ch, CURLOPT_PIPEWAIT, true);
         curl_setopt($ch, CURLOPT_TCP_KEEPALIVE, true);
