@@ -148,7 +148,7 @@ class Worker {
         }
         $sUrlFull = $this->sProxyUrl . $oReq->sUrl;
         $mHeader = $oReq->mHeader;
-        $mHeader['x-forwarded-for'] = $oReq->sUserIP;
+        $mHeader['fpw-uip'] = $oReq->sUserIP;
         if ($this->bCurlMulti) {
             $mRes = array();
             $mRes['proxy'] = array();
