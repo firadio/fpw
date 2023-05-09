@@ -11,6 +11,7 @@ $oWorker->fpwInfo['host'] = getenv('FPW_HOST');
 $oWorker->fpwInfo['token'] = getenv('FPW_TOKEN');
 $oWorker->sProxyUrl = getenv('FPW_PROXY_URL');
 $oWorker->sWwwrootDir = getenv('FPW_PUBLIC');
+$oWorker->sCookieFile = getenv('FPW_COOKIE');
 $oWorker->aDefaDocument = array('index.htm', 'index.html');
 $oWorker->init();
 
