@@ -258,7 +258,7 @@ class Worker {
         };
 
         $curCount = 0;
-        $fNewFpwCurlMulti = function ($limit = 1, $title) use ($fAddToCurlMultiByFpw, &$curCount) {
+        $fNewFpwCurlMulti = function ($limit = 1, $title = '') use ($fAddToCurlMultiByFpw, &$curCount) {
             $count = $this->iMaxConcurrency - $curCount;
             if ($count <= 0) {
                 return;
