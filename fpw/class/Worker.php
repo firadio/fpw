@@ -176,6 +176,48 @@ class Worker {
         }
     }
 
+    private function compress_getAllowContentType() {
+        // 把需要压缩的内容类型放这里
+        $aCTs = array();
+        $aCTs[] = 'text/plain';
+        $aCTs[] = 'text/html';
+        $aCTs[] = 'text/css';
+        $aCTs[] = 'text/javascript';
+        $aCTs[] = 'application/javascript';
+        $aCTs[] = 'application/json';
+        $aCTs[] = 'application/xml';
+        $aCTs[] = 'application/rss+xml';
+        $aCTs[] = 'image/svg+xml';
+        $aCTs[] = 'font/woff2';
+        return $aCTs;
+    }
+
+    private function compress_checkContentType($mHeader) {
+        // 检查哪些类型需要压缩
+        if (!isset($mHeader['content-type'])) {
+            // 未知类型不要压缩
+            return false;
+        }
+        $aContentType = explode(';', $mHeader['content-type']);
+        $sCT0 = trim($aContentType[0]);
+        $aConfCTs = $this->compress_getAllowContentType();
+        return in_array($sCT0, $aConfCTs);
+    }
+
+    private function compress(&$mHeader, &$sBody) {
+        if (isset($mHeader['content-encoding'])) {
+            // 已经压缩过的跳过
+            return;
+        }
+        if (!$this->compress_checkContentType($mHeader)) {
+            // 跳过无需压缩的类型
+            return;
+        }
+        $sBody = gzencode($sBody, 9);
+        $mHeader['content-encoding'] = 'gzip';
+        $mHeader['content-length'] = strlen($sBody);
+    }
+
     private function run2($fCallback) {
 
         // 创建curl多句柄
@@ -275,6 +317,7 @@ class Worker {
                     $mReqHeader['fpw-rid'] = $custom_data['fpw-rid'];
                     if ($info['result'] === CURLE_OK) {
                         $mReqHeader['fpw-status'] = $iStatusCode;
+                        $this->compress($mResHeader, $sResBody);
                         $mReqHeader['fpw-header'] = json_encode($mResHeader);
                         $fAddToCurlMultiByFpw($mReqHeader, $sResBody);
                         continue;
@@ -342,6 +385,7 @@ class Worker {
                         list($iStatusCode, $mFpwHeader, $sReqBody) = $o;
                         $mReqHeader['fpw-rid'] = $mResHeader['fpw-rid'];
                         $mReqHeader['fpw-status'] = $iStatusCode;
+                        $this->compress($mFpwHeader, $sReqBody);
                         $mReqHeader['fpw-header'] = json_encode($mFpwHeader);
                         $fAddToCurlMultiByFpw($mReqHeader, $sReqBody);
                         continue;
