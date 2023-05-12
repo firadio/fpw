@@ -602,6 +602,10 @@ class Worker {
                 $mReqHeader['Content-Type'] = 'application/octet-stream';
             }
         }
+        if (isset($mReqHeader['connection'])) {
+            // 前端CDN转发来的connection可能为close，这里设成keep-alive
+            $mReqHeader['connection'] = 'keep-alive';
+        }
         curl_setopt($ch, CURLOPT_HTTPHEADER, $this->header_mtoa($mReqHeader));
         return $ch;
     }
