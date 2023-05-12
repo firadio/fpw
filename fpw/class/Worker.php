@@ -262,6 +262,7 @@ class Worker {
             if ($sFpwRequest) {
                 $mReqHeader['fpw-request'] = $sFpwRequest;
             }
+            $mReqHeader['content-type'] = 'application/octet-stream';
             $ch = $this->getNewCurl('POST', $this->sServerUrl, $mReqHeader, $sReqBody);
             $this->curl_set_connect_to($ch, $this->sServerUrl, $this->sServerIP);
             $custom_data = array();
@@ -342,6 +343,10 @@ class Worker {
                     if ($info['result'] === CURLE_OK) {
                         $mReqHeader['fpw-status'] = $iStatusCode;
                         $this->compress($mResHeader, $sResBody);
+                        if (isset($mResHeader['transfer-encoding'])) {
+                            echo '[remove transfer-encoding]';
+                            unset($mResHeader['transfer-encoding']);
+                        }
                         $mReqHeader['fpw-header'] = json_encode($mResHeader);
                         $fAddToCurlMultiByFpw($mReqHeader, $sResBody);
                         continue;
@@ -598,9 +603,7 @@ class Worker {
         if ($sMethod === 'POST') {
             curl_setopt($ch, CURLOPT_POST, true);
             curl_setopt($ch, CURLOPT_POSTFIELDS, $sReqBody);
-            if (!isset($mReqHeader['Content-Type'])) {
-                $mReqHeader['Content-Type'] = 'application/octet-stream';
-            }
+            $mReqHeader['content-length'] = strlen($sReqBody);
         }
         if (isset($mReqHeader['connection'])) {
             // 前端CDN转发来的connection可能为close，这里设成keep-alive
@@ -626,8 +629,8 @@ class Worker {
         if ($sMethod === 'POST') {
             curl_setopt($this->ch, CURLOPT_POST, true);
             curl_setopt($this->ch, CURLOPT_POSTFIELDS, $sReqBody);
-            if (!isset($mReqHeader['Content-Type'])) {
-                $mReqHeader['Content-Type'] = 'application/octet-stream';
+            if (!isset($mReqHeader['content-type'])) {
+                $mReqHeader['content-type'] = 'application/octet-stream';
             }
         }
         curl_setopt($this->ch, CURLOPT_HTTPHEADER, $this->header_mtoa($mReqHeader));
