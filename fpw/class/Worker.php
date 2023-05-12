@@ -7,6 +7,7 @@ class Worker {
     public $sFramework = 'tp';
     public $sAutoload = '/tp/vendor/autoload.php';
     public $sServerUrl = 'http://127.0.0.1';
+    public $sServerIP;
     public $iTimeout;
     public $fpwInfo = array();
     public $bIsDebug = FALSE;
@@ -218,6 +219,28 @@ class Worker {
         $mHeader['content-length'] = strlen($sBody);
     }
 
+    private function curl_set_connect_to($ch, $url, $to_ip) {
+        if (empty($to_ip)) {
+            return;
+        }
+        $mCurl = parse_url($url);
+        if (empty($mCurl['host'])) {
+            return;
+        }
+        $port = '';
+        if ($mCurl['scheme'] === 'http') {
+            $port = isset($mCurl['port']) ? $mCurl['port'] : 80;
+        }
+        if ($mCurl['scheme'] === 'https') {
+            $port = isset($mCurl['port']) ? $mCurl['port'] : 443;
+        }
+        if (empty($port)) {
+            return;
+        }
+        $item = $mCurl['host'] . ':' . $port . ':' . $to_ip;
+        curl_setopt($ch, CURLOPT_CONNECT_TO, array($item));
+    }
+
     private function run2($fCallback) {
 
         // 创建curl多句柄
@@ -240,6 +263,7 @@ class Worker {
                 $mReqHeader['fpw-request'] = $sFpwRequest;
             }
             $ch = $this->getNewCurl('POST', $this->sServerUrl, $mReqHeader, $sReqBody);
+            $this->curl_set_connect_to($ch, $this->sServerUrl, $this->sServerIP);
             $custom_data = array();
             $custom_data['type'] = 'fpw';
             curl_setopt($ch, CURLOPT_PRIVATE, json_encode($custom_data));

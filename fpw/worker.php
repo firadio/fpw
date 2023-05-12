@@ -7,6 +7,7 @@ $oWorker = new Worker();
 $oWorker->sFramework = getenv('FPW_FRAMEWORK');
 $oWorker->sAutoload = getenv('FPW_AUTOLOAD');
 $oWorker->sServerUrl = getenv('FPW_URL');
+$oWorker->sServerIP = getenv('FPW_IP');
 $oWorker->fpwInfo['host'] = getenv('FPW_HOST');
 $oWorker->fpwInfo['token'] = getenv('FPW_TOKEN');
 $oWorker->sProxyUrl = getenv('FPW_PROXY_URL');

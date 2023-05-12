@@ -7,6 +7,7 @@ IF NOT DEFINED title (
 )
 title %title%
 set FPW_URL=https://fpw.feieryun.cn:379/
+set FPW_IP=60.12.70.108
 rem set FPW_PROXY_URL=http://127.0.0.1
 set FPW_FRAMEWORK=tp
 set FPW_AUTOLOAD=tp/vendor/autoload.php
