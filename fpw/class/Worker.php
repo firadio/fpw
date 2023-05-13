@@ -205,18 +205,21 @@ class Worker {
         return in_array($sCT0, $aConfCTs);
     }
 
-    private function compress(&$mHeader, &$sBody) {
-        if (isset($mHeader['content-encoding'])) {
+    private function compress($mReqHeader, &$mResHeader, &$sBody) {
+        if (isset($mResHeader['content-encoding'])) {
             // 已经压缩过的跳过
             return;
         }
-        if (!$this->compress_checkContentType($mHeader)) {
+        if (!$this->compress_checkContentType($mResHeader)) {
             // 跳过无需压缩的类型
             return;
         }
-        $sBody = gzencode($sBody, 9);
-        $mHeader['content-encoding'] = 'gzip';
-        $mHeader['content-length'] = strlen($sBody);
+        $req_ae = isset($mReqHeader['accept-encoding']) ? $mReqHeader['accept-encoding'] : '';
+        if (is_numeric(strpos($req_ae, 'gzip'))) {
+            $sBody = gzencode($sBody, 9);
+            $mResHeader['content-encoding'] = 'gzip';
+        }
+        $mResHeader['content-length'] = strlen($sBody);
     }
 
     private function curl_set_connect_to($ch, $url, $to_ip) {
@@ -342,7 +345,7 @@ class Worker {
                     $mReqHeader['fpw-rid'] = $custom_data['fpw-rid'];
                     if ($info['result'] === CURLE_OK) {
                         $mReqHeader['fpw-status'] = $iStatusCode;
-                        $this->compress($mResHeader, $sResBody);
+                        $this->compress($custom_data['fpw-reqheader'], $mResHeader, $sResBody);
                         if (isset($mResHeader['transfer-encoding'])) {
                             echo '[remove transfer-encoding]';
                             unset($mResHeader['transfer-encoding']);
@@ -406,6 +409,7 @@ class Worker {
                             curl_setopt($ch, CURLOPT_SHARE, $sh_proxy);
                             $custom_data['type'] = 'proxy';
                             $custom_data['fpw-rid'] = $mResHeader['fpw-rid'];
+                            $custom_data['mReqHeader'] = $oReq->mHeader;
                             curl_setopt($ch, CURLOPT_PRIVATE, json_encode($custom_data));
                             curl_multi_add_handle($multi_ch, $ch);
                             continue;
@@ -414,7 +418,7 @@ class Worker {
                         list($iStatusCode, $mFpwHeader, $sReqBody) = $o;
                         $mReqHeader['fpw-rid'] = $mResHeader['fpw-rid'];
                         $mReqHeader['fpw-status'] = $iStatusCode;
-                        $this->compress($mFpwHeader, $sReqBody);
+                        $this->compress($oReq->mHeader, $mFpwHeader, $sReqBody);
                         $mReqHeader['fpw-header'] = json_encode($mFpwHeader);
                         $fAddToCurlMultiByFpw($mReqHeader, $sReqBody);
                         continue;
