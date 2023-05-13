@@ -345,7 +345,7 @@ class Worker {
                     $mReqHeader['fpw-rid'] = $custom_data['fpw-rid'];
                     if ($info['result'] === CURLE_OK) {
                         $mReqHeader['fpw-status'] = $iStatusCode;
-                        $this->compress($custom_data['fpw-reqheader'], $mResHeader, $sResBody);
+                        $this->compress($custom_data['mReqHeader'], $mResHeader, $sResBody);
                         if (isset($mResHeader['transfer-encoding'])) {
                             echo '[remove transfer-encoding]';
                             unset($mResHeader['transfer-encoding']);
