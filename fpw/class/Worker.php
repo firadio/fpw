@@ -3,7 +3,10 @@
 class Worker {
 
     protected $app;
+
     private $bIsThinkPHP = false;
+    private $mDefinedConstants;
+
     public $sFramework = 'tp';
     public $sAutoload = '/tp/vendor/autoload.php';
     public $sServerUrl = 'http://127.0.0.1';
@@ -21,8 +24,51 @@ class Worker {
     public $iMaxConcurrency = 50; // 最大并发请求数
 
     public function __construct() {
+        $this->putDefinedConstants();
         $this->initMimeTypeMap(dirname(dirname(__DIR__)) . '/mime.types');
         $this->ch = curl_init();
+    }
+
+    private function getStringValue($value) {
+        // 转换为字符串
+        if (is_numeric($value)) {
+            return (string)$value;
+        }
+        if (is_string($value)) {
+            return $value;
+        }
+        if (is_bool($value)) {
+            return $value ? 1 : 0;
+        }
+        // 既不是字符串、也不是数字、也不是bool型
+        return '';
+    }
+
+    private function putDefinedConstants() {
+        // 把[常量名]的key-value反转，用于通过[常量值]来获得[常量名]
+        $mGroups = get_defined_constants(TRUE);
+        $mDefinedConstants = array();
+        foreach ($mGroups as $sGroupName => $mGroup) {
+            $mGroupOne = array();
+            foreach ($mGroup as $ConstantName => $value) {
+                $sValue = $this->getStringValue($value);
+                if ($sValue === '') {
+                    continue;
+                }
+                if (!isset($mGroupOne[$sValue])) {
+                    $mGroupOne[$sValue] = array();
+                }
+                $mGroupOne[$sValue][] = $ConstantName;
+            }
+            $mDefinedConstants[$sGroupName] = $mGroupOne;
+        }
+        $this->mDefinedConstants = $mDefinedConstants;
+    }
+
+    private function getConstantNameByValue($sGroupName, $value) {
+        // 通过[常量值]来获得[常量名]
+        $mGroupOne = $this->mDefinedConstants[$sGroupName];
+        return $mGroupOne[$value];
     }
 
     public function init() {
@@ -144,6 +190,7 @@ class Worker {
     }
 
     public function Proxy($oReq) {
+        // FPW v1.0版本的反向代理
         if (!$this->sProxyUrl) {
             return;
         }
@@ -278,11 +325,21 @@ class Worker {
             curl_multi_add_handle($multi_ch, $ch);
         };
 
-        $fGetMsgByCurlInfo = function ($result, $msg) {
-            if ($result === CURLE_COULDNT_CONNECT) {
-                return '反向代理连不到源服务器';
+        $fGetMsgByCurlInfo = function ($mInfo, $request_type) {
+            if ($mInfo['msg'] !== 1) {
+                return json_encode($mInfo);
             }
-            return json_encode(array('result' => $result, 'msg' => $msg));
+            //var_dump(curl_getinfo($mInfo['handle']));
+            $aResult = $this->getConstantNameByValue('curl', $mInfo['result']);
+            $sResult = implode(',', $aResult);
+            $sReqType = strtoupper($request_type);
+            if ($sReqType === 'PROXY') {
+                $sReqType = '源';
+            }
+            if ($mInfo['result'] === CURLE_COULDNT_CONNECT) {
+                return "[{$sResult}] 无法连接到 {$sReqType} 服务器";
+            }
+            return "[{$sResult}] 请求 {$sReqType} 时 " . curl_strerror($mInfo['result']);
         };
 
         $curCount = 0;
@@ -327,6 +384,7 @@ class Worker {
             // 获取已完成的请求
             $iReadCount = 0;
             $iFailCount = 0;
+            $mLastInfo = null;
             while (!$bStop && $info = curl_multi_info_read($multi_ch)) {
                 $iReadCount++;
                 $mReqHeader = array();
@@ -365,7 +423,7 @@ class Worker {
                     $aResBody = array();
                     $aResBody[] = '<meta charset="utf-8">';
                     $aResBody[] = '<h1>502 Bad Gateway</h1>';
-                    $aResBody[] = $fGetMsgByCurlInfo($info['result'], $info['msg']);
+                    $aResBody[] = $fGetMsgByCurlInfo($info, $custom_data['type']);
                     $fAddToCurlMultiByFpw($mReqHeader, implode('', $aResBody));
                     continue;
                 }
@@ -426,6 +484,7 @@ class Worker {
                     // 失败了，就要重新加入并发，确保并发数不会减少
                     $curCount--;
                     $iFailCount++;
+                    $mLastInfo = $info;
                     continue;
                 }
             }
@@ -441,13 +500,14 @@ class Worker {
                     // 掉线了
                     if ($sFpwRequest === 1) {
                         echo ' -> [连接失败]';
+                        echo ' -> ' . $fGetMsgByCurlInfo($mLastInfo, 'fpw');
                     } else if ($sFpwRequest === 2) {
                         echo ' -> [重接失败]';
                     } else {
                         $sFpwRequest = 2;
                         echo ' -> [掉线了]';
                     }
-                    echo ' ';
+                    echo "\r\n";
                     for ($i = 10; $i > 0; $i--) {
                       echo "{$i}.";
                       sleep(1);
@@ -533,6 +593,7 @@ class Worker {
     }
 
     private function getBrowserRequest($mReqHeader, $sReqBody) {
+        // 用于FPW v1.0版本
         $aRes = $this->httpRequestByCurl('POST', $this->sServerUrl, $mReqHeader, $sReqBody);
         if ($aRes) {
             list($iStatusCode, $mResHeader, $sResBody) = $aRes;
@@ -587,6 +648,7 @@ class Worker {
     }
 
     private function getNewCurl($sMethod, $sUrl, $mReqHeader, $sReqBody) {
+        // 返回一个curl_init（用于FPW v2.0版本）
         $ch = curl_init();
         if ($this->iTimeout) {
             curl_setopt($ch, CURLOPT_TIMEOUT, $this->iTimeout);
@@ -597,6 +659,7 @@ class Worker {
         curl_setopt($ch, CURLOPT_TCP_KEEPINTVL, 60);
         //curl_setopt($ch, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
         curl_setopt($ch, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2TLS);
+        curl_setopt($ch, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2);
         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, FALSE);
         curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, FALSE);
         curl_setopt($ch, CURLOPT_URL, $sUrl);
@@ -618,7 +681,7 @@ class Worker {
     }
 
     private function httpRequestByCurl($sMethod, $sUrl, $mReqHeader, $sReqBody) {
-        // 采用 curl 写的 http请求
+        // 采用 curl 写的 http请求 (用于FPW v1.0版本)
         curl_setopt($this->ch, CURLOPT_TCP_KEEPALIVE, true);
         curl_setopt($this->ch, CURLOPT_TCP_KEEPIDLE, 120);
         curl_setopt($this->ch, CURLOPT_TCP_KEEPINTVL, 60);
