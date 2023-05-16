@@ -79,8 +79,7 @@ class RFC1035 {
 
         // Parse question section
         for ($i = 0; $i < $qCount; $i++) {
-            $response['questions'][] = $this->parseDnsDomain($packet, $offset);
-            $offset += 4; // 4 bytes for QTYPE and QCLASS
+            $response['questions'][] = $this->parseDnsResourceRecord($packet, $offset, 'QD');
         }
 
         // Parse answer section
@@ -102,7 +101,7 @@ class RFC1035 {
     }
 
     private function parseDnsDomain($packet, &$offset) {
-        $domain = '';
+        $aDomain = array();
 
         while (true) {
 
@@ -117,35 +116,33 @@ class RFC1035 {
 
             if ($isPointer) {
                 $pointerOffset = unpack('n', substr($packet, $offset, 2))[1] & 0x3FFF;
-                $subDomain = $this->parseDnsDomain($packet, $pointerOffset);
-                $domain .= $subDomain['domain'];
+                $aDomain[] = $this->parseDnsDomain($packet, $pointerOffset);
                 $offset += 2;
                 break;
             }
 
             $offset++;
-            $subDomain = substr($packet, $offset, $length);
-            $domain .= $subDomain . '.';
+            $aDomain[] = substr($packet, $offset, $length);
             $offset += $length;
         }
 
-        return array(
-            'domain' => $domain,
-            'offset' => $offset
-        );
+        return implode('.', $aDomain);
     }
 
-    private function parseDnsResourceRecord($packet, &$offset) {
+    private function parseDnsResourceRecord($packet, &$offset, $RRT = '') {
         $record = array();
 
-        $name = $this->parseDnsDomain($packet, $offset);
-        $record['NAME'] = $name['domain'];
+        $record['NAME'] = $this->parseDnsDomain($packet, $offset);
 
         $record['TYPE'] = unpack('n', substr($packet, $offset, 2))[1];
         $offset += 2;
 
         $record['CLASS'] = unpack('n', substr($packet, $offset, 2))[1];
         $offset += 2;
+
+        if ($RRT === 'QD') {
+            return $record;
+        }
 
         $record['TTL'] = unpack('N', substr($packet, $offset, 4))[1];
         $offset += 4;
@@ -163,10 +160,20 @@ class RFC1035 {
     }
 
     private function parseDnsRecordData($iType, $rdata) {
+
+        // A 记录
         if ($iType === 1) {
             // Convert binary data to IPv4 address string
             return inet_ntop($rdata);
         }
+
+        // CNAME 记录
+        if ($iType === 5) {
+            $offset = 0;
+            return $this->parseDnsDomain($rdata, $offset);
+        }
+
+        // TXT 记录
         if ($iType === 16) {
             $txtData = substr($rdata, 1); // Skip the length byte at the beginning
             return $txtData;
@@ -174,6 +181,7 @@ class RFC1035 {
             $txtStrings = explode("\0", $txtData);
             return $txtStrings;
         }
+
         return $rdata;
     }
 

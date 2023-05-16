@@ -36,14 +36,40 @@ class DnsOverHttps {
     }
 
     private function getAllRDatasInAnswersByResponse($mDnsRP) {
-        if (!isset($mDnsRP['answers'])) {
-            return;
-        }
 
         $aRet = array();
 
+        if (!isset($mDnsRP['questions'])) {
+            return $aRet;
+        }
+
+        $aTypes = array();
+        foreach ($mDnsRP['questions'] as $mQuestion) {
+            if (!is_numeric($mQuestion['TYPE'])) {
+                continue;
+            }
+            $aTypes[] = $mQuestion['TYPE'];
+        }
+
+        if (count($aTypes) === 0) {
+            return $aRet;
+        }
+
+        if (!isset($mDnsRP['answers'])) {
+            return $aRet;
+        }
+
         foreach ($mDnsRP['answers'] as $mAnswer) {
+            if (!isset($mAnswer['TYPE'])) {
+                // 跳过没记录类型
+                continue;
+            }
+            if (!in_array($mAnswer['TYPE'], $aTypes)) {
+                // 跳过和查询TYPE不匹配的结果
+                continue;
+            }
             if (!isset($mAnswer['RDATA'])) {
+                // 跳过没RDATA的
                 continue;
             }
             $aRet[] = $mAnswer['RDATA'];
