@@ -370,12 +370,17 @@ class Worker {
             // 开始解析DNS
             $mRet = $this->oDnsOverHttps->dnsQuery($mOriUrl['host'], 'TXT');
             if (empty($mRet)) {
-                $this->consoleLog('解析失败');
+                $this->consoleLog('DNS解析失败');
                 continue;
             }
 
             $aRdatas = $mRet['rdatas'];
             $mData = json_decode($aRdatas[0], true);
+            if (empty($mData)) {
+                $this->consoleLog("从 {$mRet['server']} 获得的JSON解析失败 -> " . var_export($mData, true));
+                sleep(2);
+                continue;
+            }
             $iCount = count($mData['hosts']);
 
             $this->consoleLog("从 {$mRet['server']} 解析出 {$iCount} 个IP");

@@ -30,7 +30,7 @@ class DnsOverHttps {
         $this->aServerAddrs[] = '8.8.8.8'; // Google
         $this->aServerAddrs[] = '8.8.4.4'; // Google
         $this->aServerAddrs[] = '223.5.5.5'; // AliDns
-        $this->aServerAddrs[] = '223.6.6.6'; // AliDns
+        //$this->aServerAddrs[] = '223.6.6.6'; // AliDns
         $this->aServerAddrs[] = '1.12.12.12'; // DnsPod
         $this->aServerAddrs[] = '120.53.53.53'; // DnsPod
     }

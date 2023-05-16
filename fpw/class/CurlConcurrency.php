@@ -143,7 +143,6 @@ class CurlConcurrency {
                 // 获取 HTTP 状态码
                 $status_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
                 if ($status_code !== 200) {
-                    //var_dump($status_code);exit;
                     continue;
                 }
 
@@ -151,6 +150,9 @@ class CurlConcurrency {
 
                 // 5：curl_multi_getcontent
                 $sContent = curl_multi_getcontent($ch);
+                if (!is_string($sContent)) {
+                    continue;
+                }
 
                 $bIsOK = true;
                 break;
