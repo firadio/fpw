@@ -82,6 +82,9 @@ class DnsOverHttps {
     // 2. 定义要查询的域名和类型
     public function dnsQuery($name, $type = 'A') {
 
+        $mOption = array();
+        $mOption['CURLOPT_HEADER'] = false;
+
         // 3：要发送的Header头部
         $mHeader = array();
         $mHeader['accept'] = 'application/dns-message';
@@ -94,19 +97,22 @@ class DnsOverHttps {
         $aRequests = array();
         foreach ($this->aServerAddrs as $sServer) {
             $sUrl = 'https://' . $sServer . '/dns-query';
-            $aRequests[] = array('POST', $sUrl, $mHeader, $sReqBody);
+            $mOption['CURLOPT_PRIVATE'] = $sServer;
+            $aRequests[] = array('POST', $sUrl, $mHeader, $sReqBody, $mOption);
         }
 
         // 6. 发送HTTP请求到DoH服务器
-        $response = $this->oCurlConcurrency->getOne($aRequests);
+        list($sPrivateData, $response) = $this->oCurlConcurrency->getData($aRequests);
 
         if (!$response) {
             return;
         }
 
         if (is_string($response)) {
-            $mRet = $this->oRFC1035->parseDnsResponsePacket($response);
-            return $this->getAllRDatasInAnswersByResponse($mRet);
+            $mDRP = $this->oRFC1035->parseDnsResponsePacket($response);
+            $mRet['server'] = $sPrivateData;
+            $mRet['rdatas'] = $this->getAllRDatasInAnswersByResponse($mDRP);
+            return $mRet;
         }
 
         return;

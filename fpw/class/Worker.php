@@ -1,11 +1,17 @@
 <?php
 
+require_once __DIR__ . '/DnsOverHttps.php';
+require_once(__DIR__ . '/CurlConcurrency.php');
+
 class Worker {
 
     protected $app;
 
     private $bIsThinkPHP = false;
     private $mDefinedConstants;
+    private $oCurlConcurrency;
+    private $oDnsOverHttps;
+    private $_sServerUrl;
 
     public $sFramework = 'tp';
     public $sAutoload = '/tp/vendor/autoload.php';
@@ -24,6 +30,8 @@ class Worker {
     public $iMaxConcurrency = 50; // 最大并发请求数
 
     public function __construct() {
+        $this->oCurlConcurrency = new CurlConcurrency();
+        $this->oDnsOverHttps = new DnsOverHttps();
         $this->putDefinedConstants();
         $this->initMimeTypeMap(dirname(dirname(__DIR__)) . '/mime.types');
         $this->ch = curl_init();
@@ -72,6 +80,8 @@ class Worker {
     }
 
     public function init() {
+        // 备份原始服务器地址
+        $this->_sServerUrl = $this->sServerUrl;
         $sFramework = strtolower($this->sFramework);
         $this->bIsThinkPHP = $sFramework === strtolower('ThinkPHP') || $sFramework === 'tp';
         if ($this->bIsThinkPHP) {
@@ -291,6 +301,128 @@ class Worker {
         curl_setopt($ch, CURLOPT_CONNECT_TO, array($item));
     }
 
+    private function build_url($url_parts) {
+        $url = array();
+
+        if (isset($url_parts['scheme'])) {
+            $url[] = $url_parts['scheme'] . '://';
+        }
+
+        if (isset($url_parts['user'])) {
+            $userinfo = $url_parts['user'];
+
+            if (isset($url_parts['pass'])) {
+                $userinfo .= ':' . $url_parts['pass'];
+            }
+
+            $url[] = $userinfo . '@';
+        }
+
+        if (isset($url_parts['host'])) {
+            $url[] = $url_parts['host'];
+        }
+
+        if (isset($url_parts['port'])) {
+            $url[] = ':' . $url_parts['port'];
+        }
+
+        if (isset($url_parts['path'])) {
+            $url[] = $url_parts['path'];
+        }
+
+        if (isset($url_parts['query'])) {
+            $url[] = '?' . $url_parts['query'];
+        }
+
+        if (isset($url_parts['fragment'])) {
+            $url[] = '#' . $url_parts['fragment'];
+        }
+
+        return implode('', $url);
+    }
+
+    private function formatBytes($bytes, $precision = 2) {
+        $units = array('B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB');
+        $exp = floor(log($bytes, 1024));
+        $formatted = round($bytes / (1024 ** $exp), $precision) . ' ' . $units[$exp];
+        return $formatted;
+    }
+
+    private function consoleLog($str) {
+        echo "\r\n" . date('H:i:s') . ' ' . $str;
+    }
+
+    private function getServerUrlAndIpPort($sOriUrl) {
+
+        $mOriUrl = parse_url($sOriUrl);
+        $mHeader = array();
+        $mHeader['content-type'] = 'application/octet-stream';
+        $mHeader['fpw-request'] = 1;
+        $iBodyLength = 1024 * 1024;
+        $sReqBody = random_bytes($iBodyLength);
+        $mOption = array();
+        $mOption['CURLOPT_HEADER'] = true;
+
+        while (1) {
+
+            $this->consoleLog('DNS解析中');
+
+            // 开始解析DNS
+            $mRet = $this->oDnsOverHttps->dnsQuery($mOriUrl['host'], 'TXT');
+            if (empty($mRet)) {
+                $this->consoleLog('解析失败');
+                continue;
+            }
+
+            $aRdatas = $mRet['rdatas'];
+            $mData = json_decode($aRdatas[0], true);
+            $iCount = count($mData['hosts']);
+
+            $this->consoleLog("从 {$mRet['server']} 解析出 {$iCount} 个IP");
+
+            if (isset($mData['protocal'])) {
+                $mOriUrl['scheme'] = rtrim($mData['protocal'], ':');
+            }
+            if (isset($mData['server_name'])) {
+                $mOriUrl['host'] = $mData['server_name'];
+            }
+            if (isset($mData['path'])) {
+                $mOriUrl['path'] = $mData['path'];
+            }
+            if (isset($mData['query'])) {
+                $mOriUrl['query'] = $mData['query'];
+            }
+            if (isset($mData['alpn'])) {
+                // 协议类型，例如：h1,h2,h3
+                $mOption['alpn'] = $mData['alpn'];
+            }
+            $sNewUrl = $this->build_url($mOriUrl);
+
+            $this->consoleLog("开始测速 {$sNewUrl}");
+            $aRequests = array();
+            foreach ($mData['hosts'] as $sHost) {
+                $mOption['connect_to'] = $sHost;
+                $mOption['CURLOPT_PRIVATE'] = $sHost;
+                $aRequests[] = array('POST', $sNewUrl, $mHeader, $sReqBody, $mOption);
+            }
+            // 开始并发测速
+            $time_start = microtime(true);
+            list($sServerIP, $sContent) = $this->oCurlConcurrency->getData($aRequests);
+
+            if (empty($sServerIP)) {
+                $this->consoleLog("没有IP能连上");
+                sleep(2);
+                continue;
+            }
+
+            $time_duration = microtime(true) - $time_start;
+            $sSpeed = $this->formatBytes($iBodyLength / $time_duration);
+            $this->consoleLog("{$sServerIP} 测速成功，速度 {$sSpeed} 每秒");
+
+            return array($sNewUrl, $sServerIP);
+        }
+    }
+
     private function run2($fCallback) {
 
         // 创建curl多句柄
@@ -306,11 +438,17 @@ class Worker {
         curl_share_setopt($sh_proxy, CURLSHOPT_SHARE, CURL_LOCK_DATA_DNS);
         curl_share_setopt($sh_proxy, CURLSHOPT_SHARE, CURL_LOCK_DATA_SSL_SESSION);
 
-        $sFpwRequest = 1;
+        $iFpwRequest = 1;
 
-        $fAddToCurlMultiByFpw = function ($mReqHeader = array(), $sReqBody = '') use ($multi_ch, $sh_fpw, &$sFpwRequest) {
-            if ($sFpwRequest) {
-                $mReqHeader['fpw-request'] = $sFpwRequest;
+        $fAddToCurlMultiByFpw = function ($mReqHeader = array(), $sReqBody = '') use ($multi_ch, $sh_fpw, &$iFpwRequest) {
+
+            if ($iFpwRequest >= 1 && $iFpwRequest <= 2) {
+                list($this->sServerUrl, $this->sServerIP) = $this->getServerUrlAndIpPort($this->_sServerUrl);
+            }
+
+            // 开始设置CURL选项
+            if ($iFpwRequest) {
+                $mReqHeader['fpw-request'] = $iFpwRequest;
             }
             $mReqHeader['content-type'] = 'application/octet-stream';
             $ch = $this->getNewCurl('POST', $this->sServerUrl, $mReqHeader, $sReqBody);
@@ -354,8 +492,9 @@ class Worker {
             $time = date('H:i:s');
             $bIsDisp = $title ? true : false;
             if ($bIsDisp) {
-                echo "\r\n{$time} [{$title}";
+                echo "\r\n{$time} [{$title}]";
             }
+            $bIsDisp = false;
             for ($i = 1; $i <= $count; $i++) {
                 $fAddToCurlMultiByFpw();
                 $curCount++;
@@ -432,7 +571,7 @@ class Worker {
                         $iFpwStatus = isset($mResHeader['fpw-status']) ? intval($mResHeader['fpw-status']) : 0;
                         if ($iStatusCode == 200 && $iFpwStatus >= 200 && $iFpwStatus <= 299) {
                             // 成功连接服务器后就要将请求标记设成3
-                            $sFpwRequest = 3;
+                            $iFpwRequest = 3;
                         } else {
                             // 假如服务器拒绝连接就退出程序
                             $bStop = true;
@@ -441,7 +580,7 @@ class Worker {
                             // 来自FPW服务器的消息
                             $mResBody = json_decode($sResBody, true);
                             if (is_array($mResBody)) {
-                                echo ' -> [连接成功]';
+                                $this->consoleLog('[连接成功]');
                                 if (!empty($mResBody['msg'])) {
                                     echo ' -> ';
                                     echo $mResBody['msg'];
@@ -498,13 +637,13 @@ class Worker {
                     $iConnCount = 1;
                     $sConnMsg = '重连中';
                     // 掉线了
-                    if ($sFpwRequest === 1) {
+                    if ($iFpwRequest === 1) {
                         echo ' -> [连接失败]';
                         echo ' -> ' . $fGetMsgByCurlInfo($mLastInfo, 'fpw');
-                    } else if ($sFpwRequest === 2) {
+                    } else if ($iFpwRequest === 2) {
                         echo ' -> [重接失败]';
                     } else {
-                        $sFpwRequest = 2;
+                        $iFpwRequest = 2;
                         echo ' -> [掉线了]';
                     }
                     echo "\r\n";
