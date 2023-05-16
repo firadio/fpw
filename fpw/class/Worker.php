@@ -375,9 +375,10 @@ class Worker {
             }
 
             $aRdatas = $mRet['rdatas'];
-            $mData = json_decode($aRdatas[0], true);
+            $sJson = $aRdatas[0];
+            $mData = json_decode($sJson, true);
             if (empty($mData)) {
-                $this->consoleLog("从 {$mRet['server']} 获得的JSON解析失败 -> " . var_export($mData, true));
+                $this->consoleLog("从 {$mRet['server']} 获得的JSON解析失败 -> " . var_export($sJson, true));
                 sleep(2);
                 continue;
             }
