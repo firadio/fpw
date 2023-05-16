@@ -68,7 +68,7 @@ class DnsOverHttps {
                 // 跳过和查询TYPE不匹配的结果
                 continue;
             }
-            if (!isset($mAnswer['RDATA'])) {
+            if (empty($mAnswer['RDATA'])) {
                 // 跳过没RDATA的
                 continue;
             }
@@ -102,19 +102,19 @@ class DnsOverHttps {
         }
 
         // 6. 发送HTTP请求到DoH服务器
-        list($sPrivateData, $response) = $this->oCurlConcurrency->getData($aRequests);
-
-        if (!$response) {
-            return;
-        }
-
-        if (is_string($response)) {
+        $callback = function ($sPrivateData, $response) {
             $mDRP = $this->oRFC1035->parseDnsResponsePacket($response);
+            $aRdatas = $this->getAllRDatasInAnswersByResponse($mDRP);
+            if (count($aRdatas) === 0) {
+                return;
+            }
+            $mRet = array();
             $mRet['server'] = $sPrivateData;
-            $mRet['rdatas'] = $this->getAllRDatasInAnswersByResponse($mDRP);
+            $mRet['rdatas'] = $aRdatas;
             return $mRet;
-        }
+        };
 
-        return;
+        return $this->oCurlConcurrency->getData($aRequests, $callback);
+
     }
 }

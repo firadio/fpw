@@ -104,12 +104,7 @@ class CurlConcurrency {
         return $ch;
     }
 
-    public function getContent($aRequests) {
-        list($sPrivateData, $sContent) = $this->getData($aRequests);
-        return $sContent;
-    }
-
-    public function getData($aRequests) {
+    public function getData($aRequests, $callback) {
         // 并发执行CURL，哪个先返回就用哪个
 
         $aChs = array();
@@ -130,9 +125,7 @@ class CurlConcurrency {
             // 3：curl_multi_exec
             $status = curl_multi_exec($this->oCurlMulti, $active);
 
-            $bIsOK = false;
-            $sPrivateData = '';
-            $sContent = '';
+            $vRetData = null;
             // 4：curl_multi_info_read
             while ($info = curl_multi_info_read($this->oCurlMulti)) {
                 $ch = $info['handle'];
@@ -154,22 +147,26 @@ class CurlConcurrency {
                     continue;
                 }
 
-                $bIsOK = true;
+                $vRetData = $callback($sPrivateData, $sContent);
+                if ($vRetData === null) {
+                    continue;
+                }
+
                 break;
             }
 
-            if ($bIsOK) {
+            if ($vRetData !== null) {
                 foreach ($aChs as $ch) {
                     // 6：curl_multi_remove_handle 和 curl_close
                     curl_multi_remove_handle($this->oCurlMulti, $ch);
                     curl_close($ch);
                 }
-                return array($sPrivateData, $sContent);
+                return $vRetData;
             }
 
         } while ($active !== 0 && $status === CURLM_OK);
 
-        return array(null, null);
+        return;
     }
 
 }

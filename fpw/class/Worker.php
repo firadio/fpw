@@ -412,7 +412,10 @@ class Worker {
             }
             // 开始并发测速
             $time_start = microtime(true);
-            list($sServerIP, $sContent) = $this->oCurlConcurrency->getData($aRequests);
+            $callback = function ($sServerIP, $sContent) {
+                return array($sServerIP, $sContent);
+            };
+            list($sServerIP, $sContent) = $this->oCurlConcurrency->getData($aRequests, $callback);
 
             if (empty($sServerIP)) {
                 $this->consoleLog("没有IP能连上");
