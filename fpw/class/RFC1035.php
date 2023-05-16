@@ -86,22 +86,16 @@ class RFC1035 {
         // Parse answer section
         for ($i = 0; $i < $aCount; $i++) {
             $response['answers'][] = $this->parseDnsResourceRecord($packet, $offset);
-            $offset += 10; // 10 bytes for NAME, TYPE, CLASS, TTL, RDLENGTH
-            $offset += $response['answers'][$i]['RDLENGTH']; // Variable length RDATA
         }
 
         // Parse authority section
         for ($i = 0; $i < $nsCount; $i++) {
             $response['authorities'][] = $this->parseDnsResourceRecord($packet, $offset);
-            $offset += 10; // 10 bytes for NAME, TYPE, CLASS, TTL, RDLENGTH
-            $offset += $response['authorities'][$i]['RDLENGTH']; // Variable length RDATA
         }
 
         // Parse additional section
         for ($i = 0; $i < $arCount; $i++) {
             $response['additionals'][] = $this->parseDnsResourceRecord($packet, $offset);
-            $offset += 10; // 10 bytes for NAME, TYPE, CLASS, TTL, RDLENGTH
-            $offset += $response['additionals'][$i]['RDLENGTH']; // Variable length RDATA
         }
 
         return $response;
@@ -141,7 +135,7 @@ class RFC1035 {
         );
     }
 
-    private function parseDnsResourceRecord($packet, $offset) {
+    private function parseDnsResourceRecord($packet, &$offset) {
         $record = array();
 
         $name = $this->parseDnsDomain($packet, $offset);
@@ -163,6 +157,7 @@ class RFC1035 {
 
         $record['RDATA'] = substr($packet, $offset, $rdLength);
         $record['RDATA'] = $this->parseDnsRecordData($record['TYPE'], $record['RDATA']);
+        $offset += $rdLength;
 
         return $record;
     }
@@ -174,6 +169,7 @@ class RFC1035 {
         }
         if ($iType === 16) {
             $txtData = substr($rdata, 1); // Skip the length byte at the beginning
+            return $txtData;
             // Split multiple text strings if present
             $txtStrings = explode("\0", $txtData);
             return $txtStrings;

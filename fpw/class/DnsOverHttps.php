@@ -35,24 +35,22 @@ class DnsOverHttps {
         $this->aServerAddrs[] = '120.53.53.53'; // DnsPod
     }
 
-    private function getOneRDatasInAnswersByResponse($mDnsRP) {
+    private function getAllRDatasInAnswersByResponse($mDnsRP) {
         if (!isset($mDnsRP['answers'])) {
             return;
         }
 
+        $aRet = array();
+
         foreach ($mDnsRP['answers'] as $mAnswer) {
-            if (isset($mAnswer['RDATA'])) {
-                $rdata = $mAnswer['RDATA'];
-                if (is_string($rdata)) {
-                    return $rdata;
-                }
-                if (is_array($rdata)) {
-                    foreach ($rdata as $v) {
-                        return $v;
-                    }
-                }
+            if (!isset($mAnswer['RDATA'])) {
+                continue;
             }
+            $aRet[] = $mAnswer['RDATA'];
         }
+
+        return $aRet;
+
     }
 
     // 2. 定义要查询的域名和类型
@@ -75,9 +73,14 @@ class DnsOverHttps {
 
         // 6. 发送HTTP请求到DoH服务器
         $response = $this->oCurlConcurrency->getOne($aRequests);
+
+        if (!$response) {
+            return;
+        }
+
         if (is_string($response)) {
             $mRet = $this->oRFC1035->parseDnsResponsePacket($response);
-            return $this->getOneRDatasInAnswersByResponse($mRet);
+            return $this->getAllRDatasInAnswersByResponse($mRet);
         }
 
         return;

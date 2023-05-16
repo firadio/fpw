@@ -79,10 +79,6 @@ class CurlConcurrency {
             // 3：curl_multi_exec
             $status = curl_multi_exec($this->oCurlMulti, $active);
 
-            if ($active === 0) {
-                break;
-            }
-
             $curl_data = '';
             // 4：curl_multi_info_read
             while ($info = curl_multi_info_read($this->oCurlMulti)) {
