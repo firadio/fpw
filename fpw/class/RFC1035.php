@@ -182,6 +182,18 @@ class RFC1035 {
             return $txtStrings;
         }
 
+        // OPT 记录 根据https://www.rfc-editor.org/rfc/rfc6891
+        if ($iType === 41) {
+            $ret = array();
+            $offset = 0;
+            $ret['OPTION-CODE'] = unpack('n', substr($rdata, $offset, 2))[1];
+            $offset += 2;
+            $ret['OPTION-LENGTH'] = unpack('n', substr($rdata, $offset, 2))[1];
+            $offset += 2;
+            $ret['OPTION-DATA'] = substr($rdata, $offset, $ret['OPTION-LENGTH']);
+            return $ret;
+        }
+
         return $rdata;
     }
 
