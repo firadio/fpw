@@ -80,7 +80,7 @@ class DnsOverHttps {
     }
 
     // 2. 定义要查询的域名和类型
-    public function dnsQuery($name, $type = 'A') {
+    public function dnsQuery($name, $type = 'A', $EDNS = null) {
 
         $mOption = array();
         $mOption['CURLOPT_HEADER'] = false;
@@ -91,7 +91,7 @@ class DnsOverHttps {
         $mHeader['content-type'] = 'application/dns-message';
 
         // 4. 构建DNS查询请求
-        $sReqBody = $this->oRFC1035->constructDnsQueryPacket($name, $type);
+        $sReqBody = $this->oRFC1035->constructDnsQueryPacket($name, $type, $EDNS);
 
         // 5：生成要并发的请求列表
         $aRequests = array();

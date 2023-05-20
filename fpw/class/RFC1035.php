@@ -30,10 +30,44 @@ class RFC1035 {
         return $types['A'];
     }
 
-    public function constructDnsQueryPacket($domain, $type = 'A', $id = 0) {
+    private function getRFC6891($EDNS) {
+        // 参考https://www.rfc-editor.org/rfc/rfc6891 (6.1.2.  Wire Format)
+        $packet = pack('C', 0);  // MUST be 0 (root domain)
+        $packet .= pack('n', 41); // TYPE: OPT (41)
+        $packet .= pack('n', 4096); // CLASS: requestor's UDP payload size
+        $packet .= pack('N', 0); // TTL: extended RCODE and flags
+        $RDATA = $this->getRFC7871($EDNS);
+        $packet .= pack('n', strlen($RDATA)); // length of all RDATA
+        $packet .= $RDATA;
+        return $packet;
+    }
+
+    private function getEdnsOption($EDNS) {
+        $FAMILY = 1; // 1: IPv4, 2: IPv6
+        $SOURCE_PREFIX_LENGTH = intval($EDNS[1]);
+        $SCOPE_PREFIX_LENGTH = 0;
+        $ADDRESS = inet_pton($EDNS[0]);
+        $packet = pack('n', $FAMILY);
+        $packet .= pack('C', $SOURCE_PREFIX_LENGTH);
+        $packet .= pack('C', $SCOPE_PREFIX_LENGTH);
+        $packet .= $ADDRESS;
+        return $packet;
+    }
+
+    private function getRFC7871($EDNS) {
+        // 参考https://www.rfc-editor.org/rfc/rfc7871
+        $packet = pack('V', 768); // UDP playload size
+        $packet .= pack('n', 8); // OPTION_CODE
+        $sEdnsOption = $this->getEdnsOption($EDNS);
+        $packet .= pack('n', strlen($sEdnsOption)); // OPTION_LENGTH
+        $packet .= $sEdnsOption;
+        return $packet;
+    }
+
+    public function constructDnsQueryPacket($domain, $type = 'A', $EDNS = null, $id = 0) {
         $packet = pack('n', $id); // 2-byte ID
         $packet .= pack('n', 0x0100); // 2-byte flags (standard query)
-        $packet .= pack('nnnn', 1, 0, 0, 0); // 4-byte counts (QDCount, ANCount, NSCount, ARCount)
+        $packet .= pack('nnnn', 1, 0, 0, $EDNS ? 1 : 0); // 4-byte counts (QDCount, ANCount, NSCount, ARCount)
 
         $domainParts = explode('.', $domain);
         foreach ($domainParts as $part) {
@@ -46,6 +80,10 @@ class RFC1035 {
         $packet .= pack('n', $this->getDnsTypeValue($type)); // 2-byte QTYPE
         $packet .= pack('n', 1); // 2-byte QCLASS (IN)
 
+        if ($EDNS) {
+            $packet .= $this->getRFC6891($EDNS);
+        }
+        // echo(bin2hex($packet));
         return $packet;
     }
 
